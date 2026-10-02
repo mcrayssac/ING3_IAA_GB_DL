@@ -19,7 +19,7 @@ Règle Git : créer/basculer sur une branche locale par phase avant de coder (`p
 - [x] `src/data.py` : `CLASS_NAMES`, chargement, split train/val/test, `preprocess_face()`. Fait quand : `X_train.shape == (N,48,48,1)`, valeurs dans [0,1], test intact.
 - [x] Notebook : source/licence, nb d'images, classes, répartition par classe (graphique), dimensions, format, déséquilibre, 5 exemples par classe.
 - [x] Explications markdown : rôle du redimensionnement, de la normalisation, de l'encodage, du split.
-- [x] `tests/test_shapes.py` (shapes et K).
+- [x] `tests/test_shapes.py` : formes, classes, stratification, reproductibilité et conservation des exemples (10 tests réussis, Python 3.11).
 
 ## Phase 2 - Baseline MLP - resp. :
 - [ ] `build_mlp()` + entraînement court, val_acc/val_loss enregistrées dans `experiments.csv` (id `B0`).
@@ -54,6 +54,7 @@ Règle Git : créer/basculer sur une branche locale par phase avant de coder (`p
 - [ ] Bonus : courte vidéo.
 
 ## Phase 9 - Livrables - resp. :
+- [~] Notebook local rendu robuste au dossier de lancement ; validation Colab et présentation à terminer.
 - [ ] Notebook Colab : "Exécuter tout" sans erreur sur runtime neuf ; cellule de démo finale.
 - [ ] Présentation : démarche, architectures, expériences, résultats, limites.
 - [ ] Répétition : chaque membre sait expliquer le code, le modèle, les choix, les erreurs.

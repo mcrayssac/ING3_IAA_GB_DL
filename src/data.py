@@ -56,6 +56,8 @@ def _load_split(split_dir: Path) -> tuple[np.ndarray, np.ndarray]:
     assert X.dtype == np.float32
     assert 0.0 <= X.min() <= X.max() <= 1.0
     assert y.shape == (len(y),)
+    assert np.issubdtype(y.dtype, np.integer)
+    assert np.all((0 <= y) & (y < len(CLASS_NAMES)))
     return X, y
 
 
@@ -84,4 +86,6 @@ def load_dataset(
         assert X.dtype == np.float32
         assert 0.0 <= X.min() <= X.max() <= 1.0
         assert y.shape == (len(y),)
+        assert np.issubdtype(y.dtype, np.integer)
+        assert np.all((0 <= y) & (y < len(CLASS_NAMES)))
     return X_train, y_train, X_val, y_val, X_test, y_test

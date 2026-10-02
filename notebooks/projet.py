@@ -9,6 +9,17 @@
 
 # %%
 from pathlib import Path
+import sys
+
+
+# Le notebook peut être ouvert depuis la racine ou depuis notebooks/.
+PROJECT_ROOT = Path.cwd().resolve()
+if not (PROJECT_ROOT / "src").is_dir():
+    PROJECT_ROOT = PROJECT_ROOT.parent
+if not (PROJECT_ROOT / "src").is_dir():
+    raise RuntimeError("Ouvrir ce notebook depuis la racine du dépôt ou son dossier notebooks/.")
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,7 +27,14 @@ import numpy as np
 from src.data import CLASS_NAMES, K, load_dataset
 
 
-DATA_DIR = Path("data")  # Dossier FER2013 contenant train/ et test/.
+DATA_DIR = PROJECT_ROOT / "data"  # Dossier FER2013 contenant train/ et test/.
+if not all((DATA_DIR / split).is_dir() for split in ("train", "test")):
+    raise FileNotFoundError(
+        f"FER2013 incomplet ou absent dans {DATA_DIR}. "
+        f"Extraire le dataset pour obtenir {DATA_DIR / 'train'} et {DATA_DIR / 'test'}, "
+        "chacun avec les sept sous-dossiers de classes (voir README.md). "
+        "Puis redémarrer le kernel et exécuter toutes les cellules dans l'ordre."
+    )
 X_train, y_train, X_val, y_val, X_test, y_test = load_dataset(DATA_DIR)
 
 assert X_train.shape[1:] == (48, 48, 1)
