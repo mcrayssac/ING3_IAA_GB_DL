@@ -1,0 +1,2 @@
+id,modification,val_acc,val_loss,params,observation
+B0,Baseline MLP Flatten -> Dense ReLU -> Dense softmax,0.36080798506736755,1.6603385210037231,295943,"Dernière epoch 5/5 ; accuracy et loss de la même epoch ; poids finaux, aucune restauration des meilleurs poids ; {""seed"": 42, ""epochs"": 5, ""batch_size"": 64, ""learning_rate"": 0.001, ""hidden_units"": 128, ""train_size"": 24402, ""val_size"": 4307, ""optimizer"": ""Adam"", ""loss"": ""sparse_categorical_crossentropy""}"

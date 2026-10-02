@@ -4,7 +4,7 @@ Projet Deep Learning : classification de sept expressions faciales à partir du 
 
 ## État du projet
 
-La phase 1 données est terminée : chargement, prétraitement commun et séparation entraînement/validation/test sont testés. Les modèles, entraînements et résultats restent à réaliser ; aucune performance n'est encore annoncée.
+La phase 1 données est terminée et validée localement par l'utilisateur, y compris le chargement réel de FER2013. **Phase 2 validée : B0 complet, artefacts récupérés et vérifiés.** Le JSON, le CSV et le modèle sont cohérents avec les 5 epochs ; la validation du modèle rechargé retrouve les métriques finales. La trace rapporte les versions et les epochs ; le succès du contrôle GPU est confirmé par l'utilisateur, sans sortie GPU conservée. La validation globale du notebook sur Colab reste une étape future distincte.
 
 ## Installation locale
 
@@ -47,6 +47,20 @@ python -m pytest -q
 
 `notebooks/projet.py` est la source du notebook. Le fichier `.ipynb` est généré, ignoré par Git et ne doit pas être modifié à la main.
 
+## Baseline MLP : smoke local et B0 Colab
+
+B0 sert de référence au futur CNN : `Flatten → Dense(128, relu) → Dense(7, softmax)`, **295943 paramètres**. Il utilise le split complet (24 402 train / 4 307 validation), seed 42 dont TensorFlow, Adam à `1e-3`, batch 64 et 5 epochs, sans callbacks ni restauration. Le test officiel est réservé à l'évaluation finale.
+
+Les résultats de l'epoch 5 sont `val_accuracy = 0.360808` et `val_loss = 1.660339`. L'historique/configuration est dans `training/logs/B0_history.json`, le résumé dans `training/logs/experiments.csv` et le modèle final dans `training/checkpoints/B0.keras` (ignoré par Git). Le [guide B0 Colab](docs/B0_COLAB.md) décrit la reproduction, le transfert et les vérifications, ainsi que les preuves disponibles.
+
+**Smoke local uniquement**, depuis la racine avec l'environnement existant :
+
+```bash
+.venv/bin/python -m src.train --data-dir data
+```
+
+Il utilise au plus 256 train / 64 validation / 1 epoch et écrit `smoke_history.json` / `smoke.keras`, sans ligne B0. Le chargeur prétraite une seule fois les images ; le test officiel, chargé séparément, n'est transmis ni au modèle ni à `fit`. Ces métriques servent au contrôle technique local.
+
 ## Protocole fixé
 
 | Élément | Choix |
@@ -57,14 +71,18 @@ python -m pytest -q
 | Validation | 15 % du train, split stratifié, seed 42 |
 | Test | Dossier officiel, jamais utilisé pour les réglages |
 
-`preprocess_face()` dans `src/data.py` est la fonction de référence, déjà utilisée lors du chargement des images. Les futurs modules d'entraînement, d'évaluation et de démo devront la réutiliser.
+`preprocess_face()` dans `src/data.py` est la fonction de référence, déjà utilisée lors du chargement des images. L'entraînement consomme directement ces images prétraitées ; les futurs modules d'évaluation et de démo devront réutiliser cette fonction pour les images brutes.
 
 ## Structure
 
 ```text
 src/data.py             chargement, split et prétraitement
+src/models.py           build_mlp(), entrée image et sortie softmax
+src/train.py            entraînement MLP, smoke local et enregistrement B0
 notebooks/projet.py     source Jupytext du notebook
-tests/test_shapes.py    contrats des données et intégrité du split
+tests/test_shapes.py    contrats des données, intégrité du split et sortie MLP
+training/logs/          historique B0 réel et experiments.csv
+docs/B0_COLAB.md        reproduction Colab et vérification des résultats
 SPEC.md                 décisions techniques
 TODO.md                 phases du projet
 ```

@@ -1,10 +1,13 @@
 from pathlib import Path
+import csv
 
 import numpy as np
 import pytest
 from PIL import Image
 
 from src.data import CHANNELS, CLASS_NAMES, IMAGE_SIZE, K, SEED, load_dataset, preprocess_face
+from src.models import build_mlp
+from src import train as mlp_training
 
 
 @pytest.fixture
@@ -134,3 +137,75 @@ def test_empty_split_raises_value_error(dataset, split: str) -> None:
 
     with pytest.raises(ValueError, match="Aucune image trouvée"):
         load_dataset(root)
+
+
+def test_mlp_shapes_and_probabilities() -> None:
+    """Le MLP accepte les images et produit une distribution finie par classe."""
+    model = build_mlp()
+    batch = np.random.default_rng(SEED).random((4, 48, 48, 1), dtype=np.float32)
+    probabilities = model(batch, training=False).numpy()
+
+    assert model.input_shape == (None, 48, 48, 1)
+    assert model.output_shape == (None, K)
+    assert K == len(CLASS_NAMES) == model.layers[-1].units
+    assert model.layers[1].units == 128
+    assert model.layers[0].__class__.__name__ == "Flatten"
+    assert model.layers[1].activation.__name__ == "relu"
+    assert model.layers[-1].activation.__name__ == "softmax"
+    assert model.count_params() == 295943
+    assert probabilities.shape == (len(batch), K)
+    assert np.isfinite(probabilities).all()
+    assert np.all((0 <= probabilities) & (probabilities <= 1))
+    np.testing.assert_allclose(probabilities.sum(axis=1), 1.0, atol=1e-6)
+
+
+def test_experiment_reexecution_preserves_other_rows(tmp_path: Path) -> None:
+    """Un CSV temporaire conserve C0 et une seule ligne B0 après réexécution."""
+    path = tmp_path / "logs/experiments.csv"
+    row = dict(zip(mlp_training.EXPERIMENT_FIELDS, ("C0", "test temporaire", 0.2, 2.0, 10, "test")))
+    mlp_training._write_experiment(path, row)
+    with path.open(newline="", encoding="utf-8") as stream:
+        other = next(csv.DictReader(stream))
+    row = {**row, "id": "B0", "params": 295943}
+    mlp_training._write_experiment(path, row)
+    mlp_training._write_experiment(path, {**row, "val_acc": 0.3})
+    with path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[0] == other
+    assert len(rows) == 2 and rows[1]["id"] == "B0"
+    assert rows[1]["val_acc"] == "0.3"
+
+
+@pytest.mark.parametrize("contents", [
+    "id,val_acc\nB0,0.1\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,incomplet\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,2,10,test,en_trop\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,2,10,\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,NaN,2,10,test\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,1.1,2,10,test\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,inf,10,test\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,-1,10,test\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,2,invalide,test\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,2,0,test\n",
+    ",".join(mlp_training.EXPERIMENT_FIELDS) + "\nC0,test,0.1,2,10,test\nC0,test,0.2,2,10,test\n",
+])
+def test_invalid_csv_fails_before_training(tmp_path: Path, monkeypatch, contents: str) -> None:
+    """Un CSV invalide bloque B0 avant fit et conserve les artefacts précédents."""
+    logs, checkpoints = tmp_path / "logs", tmp_path / "checkpoints"
+    logs.mkdir()
+    checkpoints.mkdir()
+    paths = (logs / "experiments.csv", logs / "B0_history.json", checkpoints / "B0.keras")
+    for path, content in zip(paths, (contents, "historique précédent", "poids précédents")):
+        path.write_text(content, encoding="utf-8")
+    previous = [path.read_bytes() for path in paths]
+
+    def unexpected_build(**kwargs):
+        """Interdit toute construction et tout entraînement dans ce test d'échec."""
+        pytest.fail("Le CSV devait être vérifié avant la construction du modèle.")
+
+    monkeypatch.setattr(mlp_training, "build_mlp", unexpected_build)
+    images = np.zeros((4, 48, 48, 1), dtype=np.float32)
+    labels = np.zeros(4, dtype=np.int64)
+    with pytest.raises(ValueError, match="experiments.csv"):
+        mlp_training.train_mlp(images, labels, images, labels, log_dir=logs, checkpoint_dir=checkpoints)
+    assert [path.read_bytes() for path in paths] == previous
