@@ -1,8 +1,12 @@
 data/
 training/checkpoints/
+training/logs/smoke_history.json
 __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
-notebooks/*.ipynb
+*.ipynb
+*.keras
+*.zip
+*.tmp
 .venv/
 .DS_Store

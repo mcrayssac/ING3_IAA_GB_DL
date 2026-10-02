@@ -14,7 +14,7 @@ Fait : README complet de niveau ING3, avec schéma du pipeline, protocole, état
 Reste : installer les dépendances puis valider le README en même temps que les prochains livrables Colab.
 
 Commande utile : git diff --check && python3 -m pytest -q
-Fait : phase 9 — notebook robuste depuis la racine ou `notebooks/` ; artefact `.ipynb` ignoré.
+Fait : phase 9  - notebook robuste depuis la racine ou `notebooks/` ; artefact `.ipynb` ignoré.
 Reste : créer un environnement Python du projet, puis tester le notebook avec FER2013 ; run complet sur Colab.
 
 Commande utile : jupyter lab notebooks/projet.ipynb
@@ -22,7 +22,26 @@ Fait : phase 1 validée sur données synthétiques : 10 tests ; contrats labels,
 Reste : validation du notebook complet sur Colab avec FER2013, hors de cette revue ; aucun entraînement ni évaluation du test officiel effectué.
 
 Commande utile : .venv/bin/python -m pytest -q && .venv/bin/python -m pip check && git diff --check
-
-Fait : chargement FER2013 — données absentes du dépôt, racine vérifiée depuis racine/notebooks ; contrôle train/test et installation documentés ; 10 tests réussis sous Python 3.11.15.
+Fait : chargement FER2013  - données absentes du dépôt, racine vérifiée depuis racine/notebooks ; contrôle train/test et installation documentés ; 10 tests réussis sous Python 3.11.15.
 Reste : installer FER2013 dans data/train et data/test puis vérifier le chargement réel ; kernel actif non observable, aucun entraînement effectué.
+
 Commande utile : .venv/bin/jupytext --to ipynb notebooks/projet.py puis .venv/bin/jupyter lab notebooks/projet.ipynb (synchronisation manuelle, non exécutée ici).
+Fait : phase 2  - MLP, protocole B0 et explications prêts ; 11 tests réussis, smoke FER2013 256 train/64 val/1 epoch et artefacts vérifiés, CSV testé en temporaire sans ligne B0. Phase 1 validée localement par l'utilisateur.
+Reste : B0 complet sur Colab, récupération/vérification JSON/CSV/poids puis finalisation phase 2 ; validation globale Colab distincte, aucune performance B0 disponible.
+
+Commande utile : .venv/bin/python -m pytest -q && .venv/bin/python -m src.train ; pour B0, suivre README et activer RUN_B0 sur Colab.
+Fait : review phase 2  - CSV invalide refusé avant entraînement/sauvegarde, transfert Colab explicite ; 15 tests réussis, smoke FER2013 isolé 256/64/1, rechargement/dernière epoch et notebook sans B0 depuis racine/notebooks vérifiés ; artefacts existants préservés.
+Reste : B0 complet sur Colab puis récupérer/vérifier JSON/CSV/modèle et clôturer phase 2 ; installation/GPU et exécution Colab non vérifiés, aucune ligne B0 créée dans le dépôt.
+
+Commande utile : .venv/bin/python -m pytest -q && git diff --check ; suivre README (archives locales, préparation Colab, RUN_B0=True, 5 epochs).
+Fait : guide B0 du README reformulé pas à pas, avec explications simples des manipulations et des résultats.
+Reste : exécuter B0 complet sur Colab puis récupérer et vérifier ses résultats ; aucun entraînement lancé.
+
+Commande utile : git diff --check ; suivre la section « Faire B0 sur Google Colab, pas à pas » du README.
+Fait : préparation B0 Colab corrigée après conflits pip signalés ; versions natives conservées, imports/GPU/versions contrôlés par la cellule, remise à zéro documentée.
+Reste : réinitialiser la session Colab altérée puis renvoyer les ZIP ; compatibilité et B0 complet à vérifier sur Colab.
+
+Commande utile : retirer `%pip install -q -r /content/fer2013-project/requirements.txt` de la cellule Colab ; git diff --check.
+Fait : phase 2 validée, B0 JSON/CSV/modèle conformes et validation rechargée concordante ; 23 tests, notebook sans B0 et courbes vérifiés ; guide déplacé, CSV renforcé, artefacts préservés.
+Reste : phase 9 Colab globale ; GPU confirmé par assertion selon utilisateur, sortie matérielle non conservée ; commit/push/MR à réaliser par utilisateur.
+Commande utile : .venv/bin/python -m pytest -q && git diff --check ; reproduction et preuves : docs/B0_COLAB.md.

@@ -22,8 +22,10 @@ Règle Git : créer/basculer sur une branche locale par phase avant de coder (`p
 - [x] `tests/test_shapes.py` : formes, classes, stratification, reproductibilité et conservation des exemples (10 tests réussis, Python 3.11).
 
 ## Phase 2 - Baseline MLP - resp. :
-- [ ] `build_mlp()` + entraînement court, val_acc/val_loss enregistrées dans `experiments.csv` (id `B0`).
-- [ ] Explications markdown : image -> vecteur, poids/biais, propagation avant, activations, loss, rétropropagation, descente de gradient, softmax.
+- [x] `build_mlp()` et préparation de l'entraînement B0 reproductible, sauvegarde de l'historique et des résultats (CSV temporaire : réexécution et refus des fichiers mal formés avant entraînement vérifiés).
+- [x] Review locale : 23 tests réussis, smoke FER2013 antérieur (256 train, 64 validation, 1 epoch, sans ligne B0), rechargement des poids et notebook sans B0 vérifiés ; transfert Colab documenté.
+- [x] B0 complet : JSON/CSV conformes, modèle rechargé (295943 paramètres), métriques de l'epoch 5 retrouvées sur la validation ; trace epochs/versions fournie et assertion GPU confirmée par l'utilisateur (sortie GPU non conservée). Review détaillée : `docs/B0_COLAB.md`.
+- [x] Explications markdown : image -> vecteur, poids/biais, propagation avant, activations, loss, rétropropagation, descente de gradient, softmax ; appels et code des courbes prêts, affichage des résultats après B0.
 
 ## Phase 3 - CNN - resp. :
 - [ ] `build_cnn()` paramétrable. Fait quand : tableau couche par couche (shape de sortie + nb de paramètres) affiché une fois.
