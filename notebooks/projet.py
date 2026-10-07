@@ -9,6 +9,7 @@
 
 # %%
 from pathlib import Path
+import json
 import sys
 
 
@@ -130,6 +131,45 @@ assert model.input_shape == (None, 48, 48, 1)
 assert model.output_shape == (None, K)
 print(f"MLP construit : {model.count_params():,} paramètres, {K} classes.")
 
+
+def load_history(run_id):
+    """Recharge un historique sauvegardé sans déclencher d'entraînement."""
+    path = PROJECT_ROOT / f"training/logs/{run_id}_history.json"
+    if not path.is_file():
+        print(f"{run_id} : historique absent ({path}) ; courbes et résultats indisponibles.")
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    history = payload["history"]
+    assert payload["id"] == run_id
+    assert set(history) == {"loss", "accuracy", "val_loss", "val_accuracy"}
+    epochs_ran = len(history["loss"])
+    assert epochs_ran > 0 and all(len(values) == epochs_ran and np.isfinite(values).all() for values in history.values())
+    for metric, values in history.items():
+        assert np.all(np.asarray(values) >= 0)
+        if "accuracy" in metric:
+            assert np.all(np.asarray(values) <= 1)
+    if run_id == "C0":
+        best_index = int(np.argmin(history["val_loss"]))
+        assert payload["best_epoch"] == best_index + 1
+        assert payload["config"]["epochs_ran"] == epochs_ran
+        assert payload["best_metrics"] == {key: values[best_index] for key, values in history.items()}
+    return payload
+
+
+def plot_history(run_id, history, best_epoch=None):
+    """Affiche la perte et l'accuracy train/validation des epochs réellement exécutées."""
+    epoch_numbers = range(1, len(history["loss"]) + 1)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    for axis, metric, title in zip(axes, ("loss", "accuracy"), ("Perte", "Accuracy")):
+        axis.plot(epoch_numbers, history[metric], label="Train")
+        axis.plot(epoch_numbers, history[f"val_{metric}"], label="Validation")
+        if best_epoch is not None:
+            axis.axvline(best_epoch, color="gray", linestyle="--", label="Meilleure val_loss")
+        axis.set(title=f"{run_id} — {title}", xlabel="Epoch", ylabel=metric, xticks=list(epoch_numbers))
+        axis.legend()
+    plt.tight_layout()
+    plt.show()
+
 # %% [markdown]
 # **Smoke test local.** Depuis la racine : `python -m src.train`.
 # Il réutilise le split de phase 1, limite train à 256 images et validation à 64,
@@ -152,7 +192,7 @@ print(f"MLP construit : {model.count_params():,} paramètres, {K} classes.")
 # `training/logs/experiments.csv` rapporte la validation de la **dernière epoch**,
 # accuracy et loss de la même epoch, sans restauration des meilleurs poids.
 # Une réexécution remplace la ligne B0 et ses fichiers, en gardant les autres
-# expériences. Les courbes et valeurs ci-dessous ne s'affichent qu'après le run.
+# expériences. Avec `RUN_B0=False`, les courbes utilisent le JSON sauvegardé.
 
 # %%
 RUN_B0 = False  # Activer explicitement sur Colab pour le run complet.
@@ -168,19 +208,13 @@ if RUN_B0:
         checkpoint_dir=PROJECT_ROOT / "training/checkpoints",
     )
 else:
-    print("B0 non exécuté dans cette session ; aucun résultat sauvegardé n'est chargé. Guide : docs/B0_COLAB.md.")
+    print("B0 : relecture des résultats sauvegardés, sans entraînement.")
+b0_payload = load_history("B0")
+b0_history = None if b0_payload is None else b0_payload["history"]
 
 # %%
 if b0_history is not None:
-    epoch_numbers = range(1, len(b0_history["loss"]) + 1)
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    for axis, metric, title in zip(axes, ("loss", "accuracy"), ("Perte", "Accuracy")):
-        axis.plot(epoch_numbers, b0_history[metric], label="Train")
-        axis.plot(epoch_numbers, b0_history[f"val_{metric}"], label="Validation")
-        axis.set(title=title, xlabel="Epoch", ylabel=metric, xticks=list(epoch_numbers))
-        axis.legend()
-    plt.tight_layout()
-    plt.show()
+    plot_history("B0", b0_history)
     print(f"B0  - dernière epoch {len(b0_history['loss'])} : "
           f"val_acc={b0_history['val_accuracy'][-1]:.6f}, "
           f"val_loss={b0_history['val_loss'][-1]:.6f}")
@@ -194,7 +228,7 @@ if b0_history is not None:
 # Ces scores modestes servent de référence, sans seuil de performance imposé.
 # Les métriques du modèle rechargé concordent sur la validation issue du train ;
 # le test officiel n'a pas été évalué. Les preuves et leurs limites figurent
-# dans le guide ; les courbes ci-dessus proviennent uniquement du run de cette session.
+# dans le guide ; les courbes ci-dessus proviennent du JSON sauvegardé.
 # La validation globale du notebook Colab demeure une étape distincte du suivi.
 
 # %% [markdown]
@@ -294,3 +328,156 @@ print(f"CNN C0 : {cnn.count_params():,} paramètres, contre {model.count_params(
 # > dépasser l'accuracy de validation de B0 (0,360808). Sans régularisation, un
 # > surapprentissage est aussi possible. Les courbes de la phase 4 permettront de
 # > vérifier ces deux points.
+
+# %% [markdown]
+# ## Phase 4 — entraînement C0 et comparaison
+#
+# **Protocole.** Nous conservons le split stratifié, les pixels déjà normalisés
+# et les labels entiers. La cross-entropie est `-log(p_classe_attendue)` : elle
+# pénalise fortement une erreur confiante. L'accuracy mesure la proportion de
+# classes prédites correctement ; deux modèles de même accuracy peuvent donc
+# avoir des losses différentes. Adam adapte la mise à jour de chaque poids aux
+# gradients, avec un learning rate de 0,001. Un batch de 64 images détermine un
+# gradient avant une mise à jour ; une epoch parcourt les 24 402 images train
+# (382 batches, le dernier incomplet). La validation utilise les 4 307 images
+# réservées du train officiel, sans apprentissage. Le test reste réservé.
+#
+# **Callbacks.** Après chaque epoch, `ModelCheckpoint(save_best_only=True)`
+# conserve le modèle ayant la plus petite `val_loss` (`mode="min"`).
+# `EarlyStopping(patience=5, restore_best_weights=True)` arrête après cinq epochs
+# sans amélioration de cette même loss et restaure les meilleurs poids.
+# Le plafond de 30 epochs borne la durée ; l'historique garde toutes les epochs
+# réellement exécutées, y compris celles après la meilleure. En cas d'égalité,
+# la première epoch minimale est retenue. L'accuracy affichée pour C0 vient
+# de cette epoch, même si une autre epoch atteint une accuracy plus haute.
+# B0 conserve ses cinq epochs et ses poids finaux, sans ces callbacks.
+#
+# **Lecture des courbes.** La loss doit se lire avec l'accuracy : diminuer la
+# loss peut améliorer les probabilités sans changer la classe gagnante.
+# Une loss train qui baisse alors que la loss validation remonte suggère un
+# surapprentissage. Des résultats faibles et proches des deux côtés peuvent
+# suggérer un sous-apprentissage ; un plateau seul ne suffit pas à conclure.
+# Les fluctuations de validation ne justifient pas l'utilisation du test.
+# La ligne verticale indique l'epoch des poids retenus, pas la fin du run.
+# La comparaison B0/C0 utilise des budgets et des règles de sélection différents ;
+# elle décrit ces deux protocoles, sans isoler le seul effet de l'architecture.
+#
+# **Exécution.** Guide et cellules exactes :
+# [section C0 du guide Colab](../docs/B0_COLAB.md#c0--phase-4-sur-colab-gpu).
+# `RUN_C0=False` recharge l'historique sans entraîner. S'il manque, aucun résultat
+# C0 n'est déduit de l'hypothèse de phase 3. Smoke local temporaire :
+# `python -m src.train --model cnn`. Contrôle des vrais artefacts :
+# `python -m src.train --check-c0` (validation complète, aucun entraînement).
+
+# %%
+from src.train import train_cnn, verify_cnn_run, _read_experiments
+
+
+RUN_C0 = False  # Activer uniquement pour le vrai run Colab GPU.
+C0_ARCHITECTURE = dict(filters=(32, 64, 128), kernel_size=3, dense_units=128, seed=42)
+C0_PARAMS = dict(epochs=30, batch_size=64, learning_rate=1e-3, seed=42)
+LOG_DIR = PROJECT_ROOT / "training/logs"
+CHECKPOINT_DIR = PROJECT_ROOT / "training/checkpoints"
+if RUN_C0:
+    import google.colab
+    import hashlib
+    import tensorflow as tf
+    from importlib.metadata import version
+
+    gpus = tf.config.list_physical_devices("GPU")
+    assert gpus, "GPU absent : choisir un runtime Colab GPU avant C0."
+    assert len(y_train) == 24402 and len(y_val) == 4307
+    assert set(np.unique(y_train)) == set(np.unique(y_val)) == set(range(K))
+    preserved_paths = [path for directory in (LOG_DIR, CHECKPOINT_DIR) for path in directory.glob("B0*") if path.is_file()]
+    preserved_hashes = {str(path.relative_to(PROJECT_ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in preserved_paths}
+    previous_rows = [row for row in _read_experiments(LOG_DIR / "experiments.csv") if row["id"] != "C0"]
+    assert (LOG_DIR / "B0_history.json").is_file() and any(row["id"] == "B0" for row in previous_rows)
+    assert (CHECKPOINT_DIR / "B0.keras").is_file(), "Transférer aussi le checkpoint B0 pour sa préservation."
+    trace = {
+        "python": sys.version, "gpu_devices": [str(device) for device in gpus],
+        "versions": {package: version(package) for package in ("tensorflow", "keras", "numpy", "scikit-learn")},
+        "train_size": len(y_train), "val_size": len(y_val), "test_used": False,
+        "preserved_artifacts_sha256": preserved_hashes, "preserved_rows": previous_rows,
+    }
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    trace_path = LOG_DIR / "C0_colab_environment.txt"
+    trace_path.write_text(json.dumps(trace, indent=2) + "\n", encoding="utf-8")
+    print("GPU :", gpus, "; split complet :", len(y_train), len(y_val))
+    cnn, c0_history = train_cnn(
+        lambda: build_cnn(**C0_ARCHITECTURE), X_train, y_train, X_val, y_val,
+        **C0_PARAMS, log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR,
+    )
+    restored_cnn = tf.keras.models.load_model(CHECKPOINT_DIR / "C0.keras")
+    for saved, returned in zip(restored_cnn.get_weights(), cnn.get_weights()):
+        np.testing.assert_array_equal(saved, returned)
+    assert preserved_hashes == {str(path.relative_to(PROJECT_ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in preserved_paths}
+    assert previous_rows == [row for row in _read_experiments(LOG_DIR / "experiments.csv") if row["id"] != "C0"]
+    trace["verification"] = verify_cnn_run(X_val, y_val, log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+    trace["preserved_after_run"] = True
+    trace["checkpoint_weights_equal_returned"] = True
+    trace_path.write_text(json.dumps(trace, indent=2) + "\n", encoding="utf-8")
+
+c0_payload = load_history("C0")
+c0_history = None if c0_payload is None else c0_payload["history"]
+
+# %%
+if c0_history is not None:
+    plot_history("C0", c0_history, c0_payload["best_epoch"])
+    print(f"C0 : {len(c0_history['loss'])} epochs exécutées ; meilleure epoch sur val_loss : {c0_payload['best_epoch']}.")
+
+comparison_rows = []
+for run_id, payload, params in (("B0", b0_payload, model.count_params()), ("C0", c0_payload, cnn.count_params())):
+    if payload is None:
+        print(f"{run_id} : absent de la comparaison, historique indisponible.")
+        continue
+    history = payload["history"]
+    index = len(history["loss"]) - 1 if run_id == "B0" else payload["best_epoch"] - 1
+    comparison_rows.append({
+        "id": run_id, "epoch retenue": index + 1, "epochs exécutées": len(history["loss"]),
+        "val_acc": history["val_accuracy"][index], "val_loss": history["val_loss"][index], "paramètres": params,
+    })
+comparison = pd.DataFrame(comparison_rows)
+if not comparison.empty:
+    from IPython.display import display
+
+    display(comparison)
+print("B0 : dernière epoch ; C0 : première meilleure epoch sur val_loss. Accuracy et loss issues de la même epoch.")
+
+# %% [markdown]
+# **Analyse du vrai historique.** La cellule suivante rapporte uniquement les
+# valeurs des JSON disponibles. Les variations des dernières epochs décrivent
+# la fin de l'entraînement ; les métriques de comparaison décrivent les poids
+# retenus.
+#
+# **C0 vérifié le 7 octobre 2026 sur GPU Tesla T4.** Douze epochs ont été
+# exécutées. La meilleure loss validation est 1,232023 à l'epoch 7, avec une
+# accuracy validation de 0,556536 ; ces deux valeurs décrivent le checkpoint.
+# Après l'epoch 7, la loss train continue de baisser (0,884061 → 0,363075),
+# tandis que la loss validation augmente jusqu'à 1,898607. L'accuracy train
+# atteint 0,874027, alors que celle de validation reste autour de 0,55 :
+# cet écart croissant indique un surapprentissage sur ce run. Après cinq epochs
+# sans meilleure val_loss, l'arrêt anticipé termine à l'epoch 12 et restaure
+# les poids de l'epoch 7. La plus haute accuracy validation est à l'epoch 11
+# (0,558161), mais sa loss vaut 1,643386 : cette epoch n'est donc pas retenue.
+#
+# Par rapport à B0 à sa dernière epoch (5), C0 à son epoch retenue (7) gagne
+# 19,57 points d'accuracy validation et réduit la loss de 0,428316. C0 compte
+# 683 527 paramètres contre 295 943 pour B0. Notre hypothèse d'une meilleure
+# accuracy est confirmée pour ces deux runs, mais leurs budgets et règles de
+# sélection différents ne permettent pas d'attribuer tout le gain à la seule
+# architecture. La validation complète du checkpoint rechargé concorde avec
+# le JSON dans Colab et en local ; aucune conclusion n'est tirée sur le test.
+
+# %%
+if c0_history is not None:
+    best_index = c0_payload["best_epoch"] - 1
+    print(f"C0 — loss train : {c0_history['loss'][0]:.6f} → {c0_history['loss'][-1]:.6f} ; "
+          f"loss validation : {c0_history['val_loss'][0]:.6f} → {c0_history['val_loss'][-1]:.6f}.")
+    print(f"À l'epoch retenue {best_index + 1} : accuracy train={c0_history['accuracy'][best_index]:.6f}, "
+          f"validation={c0_history['val_accuracy'][best_index]:.6f} ; val_loss={c0_history['val_loss'][best_index]:.6f}.")
+    if b0_history is not None:
+        print(f"Écart C0 − B0 sur les epochs retenues : "
+              f"val_acc={c0_history['val_accuracy'][best_index] - b0_history['val_accuracy'][-1]:+.6f}, "
+              f"val_loss={c0_history['val_loss'][best_index] - b0_history['val_loss'][-1]:+.6f}.")
+else:
+    print("Analyse C0 en attente du vrai historique Colab GPU ; aucun score C0 disponible.")

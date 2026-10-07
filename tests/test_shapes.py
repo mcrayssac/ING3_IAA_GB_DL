@@ -1,5 +1,7 @@
 from pathlib import Path
 import csv
+import json
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -227,3 +229,85 @@ def test_invalid_csv_fails_before_training(tmp_path: Path, monkeypatch, contents
     with pytest.raises(ValueError, match="experiments.csv"):
         mlp_training.train_mlp(images, labels, images, labels, log_dir=logs, checkpoint_dir=checkpoints)
     assert [path.read_bytes() for path in paths] == previous
+
+
+def test_cnn_best_epoch_after_early_stopping(tmp_path: Path, monkeypatch) -> None:
+    """Simule un arrêt anticipé sans entraînement et vérifie poids et métriques associés."""
+    logs, checkpoints = tmp_path / "logs", tmp_path / "checkpoints"
+    csv_path = logs / "experiments.csv"
+    baseline = dict(zip(mlp_training.EXPERIMENT_FIELDS, ("B0", "baseline", 0.3, 1.8, 295943, "préservé")))
+    mlp_training._write_experiment(csv_path, baseline)
+    previous_csv = csv_path.read_bytes()
+    recorded = []
+    monkeypatch.setattr(mlp_training, "_write_experiment", lambda path, row: recorded.append(row))
+
+    def simulated_fit(model, train, *, validation_data, epochs, shuffle, callbacks, verbose):
+        """Fournit des logs contrôlés aux vrais callbacks, sans calcul de gradient."""
+        assert epochs == 30 and not shuffle
+        checkpoint, stopping = callbacks
+        assert checkpoint.monitor == stopping.monitor == "val_loss"
+        assert checkpoint.mode == stopping.mode == "min"
+        assert checkpoint.save_best_only and stopping.restore_best_weights
+        assert stopping.patience == 5
+        assert model.loss == "sparse_categorical_crossentropy"
+        np.testing.assert_allclose(float(model.optimizer.learning_rate.numpy()), 1e-3)
+        model.stop_training = False
+        for callback in callbacks:
+            callback.set_model(model)
+            callback.set_params({"epochs": epochs, "verbose": 0})
+            callback.on_train_begin()
+        history = {"loss": [], "accuracy": [], "val_loss": [], "val_accuracy": []}
+        # Le plateau conserve la première meilleure epoch ; accuracy culmine ensuite.
+        for epoch, val_loss in enumerate([2.0, 1.0, 1.0, 1.2, 1.3, 1.4, 1.5]):
+            model.layers[-1].bias.assign(np.full(K, epoch, dtype=np.float32))
+            values = {"loss": 2.0, "accuracy": 0.2, "val_loss": val_loss, "val_accuracy": (epoch + 1) / 10}
+            for key, value in values.items():
+                history[key].append(value)
+            for callback in callbacks:
+                callback.on_epoch_end(epoch, values)
+            if model.stop_training:
+                break
+        assert model.stop_training
+        for callback in callbacks:
+            callback.on_train_end()
+        return SimpleNamespace(history=history)
+
+    monkeypatch.setattr(mlp_training.tf.keras.Model, "fit", simulated_fit)
+    images = np.zeros((4, *mlp_training.INPUT_SHAPE), dtype=np.float32)
+    labels = np.zeros(4, dtype=np.int64)
+    model, history = mlp_training.train_cnn(
+        build_cnn, images, labels, images, labels, log_dir=logs, checkpoint_dir=checkpoints, verbose=0,
+    )
+    payload = json.loads((logs / "C0_history.json").read_text(encoding="utf-8"))
+    assert payload["best_epoch"] == 2
+    assert payload["config"]["epochs_ran"] == 7 < payload["config"]["epochs"] == 30
+    assert payload["history"] == history
+    assert payload["best_metrics"]["val_loss"] == recorded[0]["val_loss"] == 1.0
+    assert payload["best_metrics"]["val_accuracy"] == recorded[0]["val_acc"] == 0.2
+    assert recorded[0]["params"] == 683527
+    assert "Meilleure epoch 2/7" in recorded[0]["observation"]
+    restored = mlp_training.tf.keras.models.load_model(checkpoints / "C0.keras", compile=False)
+    for saved, returned in zip(restored.get_weights(), model.get_weights()):
+        np.testing.assert_array_equal(saved, returned)
+    np.testing.assert_array_equal(restored.layers[-1].bias.numpy(), np.ones(K))
+    assert csv_path.read_bytes() == previous_csv  # Aucune ligne C0 issue de cette simulation.
+
+
+def test_cnn_rejects_wrong_class_count(tmp_path: Path) -> None:
+    """Refuse une fabrique incompatible avant fit et sauvegarde."""
+    def wrong_factory():
+        """Construit seulement un modèle invalide pour vérifier le contrat de classes."""
+        return mlp_training.tf.keras.Sequential([
+            mlp_training.tf.keras.Input(shape=mlp_training.INPUT_SHAPE),
+            mlp_training.tf.keras.layers.Flatten(),
+            mlp_training.tf.keras.layers.Dense(K - 1, activation="softmax"),
+        ])
+
+    images = np.zeros((4, *mlp_training.INPUT_SHAPE), dtype=np.float32)
+    labels = np.zeros(4, dtype=np.int64)
+    with pytest.raises(AssertionError):
+        mlp_training.train_cnn(
+            wrong_factory, images, labels, images, labels,
+            log_dir=tmp_path / "logs", checkpoint_dir=tmp_path / "checkpoints", smoke=True,
+        )
+    assert not list(tmp_path.iterdir())
