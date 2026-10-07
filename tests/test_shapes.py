@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from src.data import CHANNELS, CLASS_NAMES, IMAGE_SIZE, K, SEED, load_dataset, preprocess_face
-from src.models import build_mlp
+from src.models import build_cnn, build_mlp
 from src import train as mlp_training
 
 
@@ -157,6 +157,24 @@ def test_mlp_shapes_and_probabilities() -> None:
     assert np.isfinite(probabilities).all()
     assert np.all((0 <= probabilities) & (probabilities <= 1))
     np.testing.assert_allclose(probabilities.sum(axis=1), 1.0, atol=1e-6)
+
+
+def test_cnn_shapes_and_probabilities() -> None:
+    """Le CNN C0 enchaîne trois blocs conv/pooling et produit une distribution."""
+    model = build_cnn()
+    batch = np.random.default_rng(SEED).random((4, 48, 48, 1), dtype=np.float32)
+    probabilities = model(batch, training=False).numpy()
+
+    names = [layer.__class__.__name__ for layer in model.layers]
+    assert names == ["Conv2D", "MaxPooling2D"] * 3 + ["Flatten", "Dense", "Dense"]
+    assert model.layers[5].output.shape == (None, 6, 6, 128)
+    assert model.layers[-1].activation.__name__ == "softmax"
+    assert model.count_params() == 683527
+    assert probabilities.shape == (len(batch), K)
+    assert np.isfinite(probabilities).all()
+    np.testing.assert_allclose(probabilities.sum(axis=1), 1.0, atol=1e-6)
+    with pytest.raises(ValueError, match="deux blocs"):
+        build_cnn(filters=(32,))
 
 
 def test_experiment_reexecution_preserves_other_rows(tmp_path: Path) -> None:
