@@ -9,7 +9,7 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.metrics import classification_report
 
-from src.data import CLASS_NAMES, preprocess_face
+from src.data import CHANNELS, CLASS_NAMES, IMAGE_SIZE, K, preprocess_face
 from src.train import BATCH_SIZE, CHECKPOINT_DIR, LOG_DIR, _check_data, _validation_digest
 
 
@@ -50,8 +50,18 @@ def confident_examples(
 
 def predict_faces(model: tf.keras.Model, images) -> np.ndarray:
     """Applique preprocess_face() à des images brutes puis renvoie les probabilités."""
+    assert model.input_shape == (None, *IMAGE_SIZE, CHANNELS)
+    assert K == len(CLASS_NAMES) == model.layers[-1].units == model.output_shape[-1]
+    images = list(images)
+    if not images:
+        return np.empty((0, K), dtype=np.float32)
     X = np.stack([preprocess_face(image) for image in images])
-    return model.predict(X, batch_size=BATCH_SIZE, verbose=0)
+    assert X.shape == (len(images), *IMAGE_SIZE, CHANNELS)
+    probabilities = np.asarray(model.predict(X, batch_size=BATCH_SIZE, verbose=0))
+    assert probabilities.shape == (len(images), K) and np.isfinite(probabilities).all()
+    assert np.all((0 <= probabilities) & (probabilities <= 1))
+    assert np.allclose(probabilities.sum(axis=1), 1, atol=1e-5)
+    return probabilities
 
 
 def evaluate_test_once(

@@ -66,9 +66,11 @@ Phases 1 à 6 : socle obligatoire. Enrichissement visé : phase 7 (data augmenta
 - [x] Data augmentation (id `A1`) : E3 + augmentation du train dans `tf.data` (flip, rotation ±18°, translation/zoom ±15 %, contraste ±20 %), poids neufs, même split et budget ; run Colab GPU vérifié en local (epoch 24/29). Par rapport à E3 : val_loss −0,066188, val_acc +1,79 point, surapprentissage retardé ; F1 macro 0,507 → 0,502 (disgust et fear en recul).
 
 ## Phase 8 - Détection de plusieurs visages (YOLO, extension optionnelle)
-- [ ] Choisir et justifier le détecteur : un YOLO pré-entraîné sur COCO détecte des personnes, pas des visages ; utiliser un modèle entraîné sur des visages ou justifier une alternative.
-- [ ] Pipeline : détection -> bounding boxes -> extraction -> `preprocess_face()` -> CNN -> bounding box + expression + score, sur 2-3 images à plusieurs personnes.
-- [ ] Explications : classification vs détection, bounding box, confidence score, IoU, NMS, principe de YOLO, modèle pré-entraîné, fine-tuning, precision / recall / mAP.
+- [x] Choisir et justifier le détecteur : un YOLO pré-entraîné sur COCO détecte des personnes, pas des visages ; utiliser un modèle entraîné sur des visages ou justifier une alternative.
+- [x] Pipeline : détection -> bounding boxes -> extraction -> `preprocess_face()` -> CNN -> bounding box + expression + score, sur 2-3 images à plusieurs personnes.
+- [x] Explications : classification vs détection, bounding box, confidence score, IoU, NMS, principe de YOLO, modèle pré-entraîné, fine-tuning, precision / recall / mAP.
+
+Vérifié en local : YuNet ONNX officiel (MIT, OpenCV existant) + A1 ; trois photos NASA, trois visages chacune, annotations inspectées ; 40 tests, cellules de démo exécutées, téléchargement depuis zéro contrôlé, notebook converti. README épuré. Pas de relance Colab, d'entraînement ni de nouvelle évaluation du test. API de relais : `load_models()`, `detect_expressions()`, `annotate_faces()` dans `src/detect.py`.
 
 ## Phase 9 - Vidéo (extension bonus)
 - [ ] Courte vidéo : images successives -> détection -> extraction des visages -> CNN -> prédictions -> affichage.
