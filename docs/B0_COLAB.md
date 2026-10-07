@@ -99,7 +99,7 @@ Extraire dans un dossier séparé, vérifier, puis recopier aux mêmes chemins l
 - Modèle : chargement par `tf.keras.models.load_model`, architecture attendue, entrée `(None, 48, 48, 1)`, sortie `(None, 7)`, 295943 paramètres ; probabilités synthétiques finies et de somme 1. Le chargement seul ne prouve pas le lien des poids avec l'epoch 5 du JSON.
 - Traces Colab : versions, GPU détecté et cinq epochs terminées. Distinguer une sortie conservée d'une simple déclaration d'exécution. Ne jamais évaluer le test officiel pour cette review.
 
-Actualiser README/TODO/JOURNAL selon les preuves, sans cocher la validation globale du notebook Colab de phase 9. En l'absence d'une preuve nécessaire, laisser la clôture en attente plutôt que relancer B0 pour combler la documentation.
+Actualiser README/TODO/JOURNAL selon les preuves, sans cocher la validation globale du notebook Colab des livrables. En l'absence d'une preuve nécessaire, laisser la clôture en attente plutôt que relancer B0 pour combler la documentation.
 
 ## Résultats récupérés et review du 2 octobre 2026
 
@@ -121,7 +121,7 @@ La validation du modèle rechargé, uniquement sur les 4307 exemples issus du tr
 
 La trace texte fournie lors de la review rapporte les 5 epochs complètes, 382 batches chacune, les mêmes métriques arrondies et le split 24402/4307/7178 depuis `/content/fer2013-project`. Versions rapportées : Python 3.13.15, TensorFlow 2.20.0, Keras 3.13.2, NumPy 2.1.3, Matplotlib 3.10.0, Pillow 11.3.0, scikit-learn 1.6.1. L'utilisateur confirme que la cellule terminée par `assert tf.config.list_physical_devices("GPU")` s'est exécutée sans erreur. Aucune sortie donnant les périphériques GPU n'a été conservée : ce succès est rapporté par l'utilisateur, sans preuve indépendante du matériel exact ni de son utilisation pendant `fit`. Les durées et les artefacts seuls ne prouvent pas la présence du GPU.
 
-La phase 2 est validée sur ces vérifications et la trace fournie. La validation globale « Exécuter tout » sur runtime Colab neuf reste une tâche de phase 9.
+La phase 2 est validée sur ces vérifications et la trace fournie. La validation globale « Exécuter tout » sur runtime Colab neuf reste une tâche des livrables.
 
 Contrôles locaux : 23 tests réussis, dont conservation des autres expériences et refus des CSV invalides avant construction/entraînement/sauvegarde ; source du notebook exécutée avec `RUN_B0=False` depuis racine et `notebooks/`, sans entraînement ni courbes B0 ; `git diff --check` sans erreur. Les artefacts existants sont restés identiques byte pour byte. Aucun nouvel entraînement complet ni évaluation du test officiel, aucune modification de dépendance et aucune action commit/push/merge request.
 
