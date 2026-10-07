@@ -481,3 +481,182 @@ if c0_history is not None:
               f"val_loss={c0_history['val_loss'][best_index] - b0_history['val_loss'][-1]:+.6f}.")
 else:
     print("Analyse C0 en attente du vrai historique Colab GPU ; aucun score C0 disponible.")
+
+# %% [markdown]
+# ## Phase 5 — évaluation et analyse des erreurs
+#
+# L'accuracy ne suffit pas ici, car les classes sont déséquilibrées : disgust
+# ne compte que 436 images dans le train officiel, contre 7 215 pour happy.
+# Un modèle peut obtenir une accuracy correcte en ignorant presque une petite
+# classe. Nous regardons donc les performances par expression.
+#
+# Pour une classe donnée, la **precision** est la part de prédictions justes
+# parmi les images prédites dans cette classe. Le **recall** est la part des
+# images de cette classe retrouvées par le modèle. Le **F1** est leur moyenne
+# harmonique : il reste bas si l'une des deux est faible. La **matrice de
+# confusion** croise la vraie classe (ligne) et la classe prédite (colonne).
+# Nous la normalisons par ligne, donc la diagonale donne le recall de chaque
+# classe.
+#
+# Cette analyse porte sur la **validation** (4 307 images issues du train
+# officiel). Le test reste réservé à une seule évaluation du modèle final.
+# Les exemples affichés sont les prédictions les plus confiantes, correctes
+# ou erronées : une erreur commise avec une forte probabilité est la plus
+# instructive.
+
+# %%
+import tensorflow as tf
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+from src.evaluate import class_report, confident_examples, evaluate
+from src.train import RELOAD_ATOL, RELOAD_RTOL
+
+
+def show_examples(title, X, y, y_pred, confidence, indices):
+    """Affiche des images avec vraie classe, classe prédite et probabilité."""
+    if len(indices) == 0:
+        print(f"{title} : aucun exemple.")
+        return
+    fig, axes = plt.subplots(1, len(indices), figsize=(2 * len(indices), 2.8), layout="constrained")
+    for number, (axis, index) in enumerate(zip(np.atleast_1d(axes), indices), start=1):
+        axis.imshow(X[index, ..., 0], cmap="gray", vmin=0, vmax=1)
+        axis.set_title(f"{number}. vrai : {CLASS_NAMES[y[index]]}\nprédit : {CLASS_NAMES[y_pred[index]]}\n"
+                       f"p = {confidence[index]:.2f}", fontsize=8)
+        axis.axis("off")
+    fig.suptitle(title)
+    plt.show()
+
+
+def show_analysis(title, X, y, y_pred, confidence):
+    """Matrice de confusion, paires confondues, rapport par classe et exemples."""
+    y_pred, confidence = np.asarray(y_pred), np.asarray(confidence)
+    counts = confusion_matrix(y, y_pred, labels=range(K))
+    rates = counts / counts.sum(axis=1, keepdims=True)
+    fig, axis = plt.subplots(figsize=(7, 6))
+    ConfusionMatrixDisplay(rates, display_labels=CLASS_NAMES).plot(
+        ax=axis, values_format=".2f", cmap="Blues", colorbar=False, xticks_rotation=30,
+    )
+    axis.set(title=f"{title} — matrice normalisée par vraie classe",
+             xlabel="Classe prédite", ylabel="Vraie classe")
+    plt.tight_layout()
+    plt.show()
+    pairs = [(counts[i, j], rates[i, j], CLASS_NAMES[i], CLASS_NAMES[j])
+             for i in range(K) for j in range(K) if i != j]
+    print(f"{title} : {counts.sum()} images ; paires les plus confondues (vrai → prédit) :")
+    for count, rate, true_name, predicted_name in sorted(pairs, reverse=True)[:5]:
+        print(f"  {true_name} → {predicted_name} : {count} images ({rate:.1%} de {true_name})")
+    print(class_report(y, y_pred).round(3).to_string())
+    for correct, label in ((True, "correctes"), (False, "erronées")):
+        indices = confident_examples(y, y_pred, confidence, correct)
+        show_examples(f"{title} — prédictions {label} les plus confiantes", X, y, y_pred, confidence, indices)
+    return counts
+
+
+validation_results = {}
+for run_id in ("B0", "C0"):
+    path = CHECKPOINT_DIR / f"{run_id}.keras"
+    if not path.is_file():
+        print(f"{run_id} : checkpoint absent ({path}) ; analyse de validation indisponible.")
+        continue
+    validation_results[run_id] = evaluate(tf.keras.models.load_model(path), X_val, y_val)
+    print(f"{run_id} validation : accuracy={validation_results[run_id]['accuracy']:.6f}, "
+          f"loss={validation_results[run_id]['loss']:.6f}")
+if "C0" in validation_results and c0_payload is None:
+    print("C0 : historique absent ; concordance du checkpoint non vérifiée, analyse non affichée.")
+elif "C0" in validation_results:
+    for key in ("accuracy", "loss"):
+        np.testing.assert_allclose(validation_results["C0"][key], c0_payload["best_metrics"][f"val_{key}"],
+                                   rtol=RELOAD_RTOL, atol=RELOAD_ATOL)
+    c0_val = validation_results["C0"]
+    show_analysis("C0 validation", X_val, y_val, c0_val["y_pred"], c0_val["confidence"])
+
+# %%
+if {"B0", "C0"} <= validation_results.keys():
+    f1 = pd.DataFrame({run_id: class_report(y_val, validation_results[run_id]["y_pred"])["f1-score"]
+                       for run_id in ("B0", "C0")}).loc[[*CLASS_NAMES, "macro avg", "weighted avg"]]
+    f1["écart C0 − B0"] = f1["C0"] - f1["B0"]
+    print("F1 par classe sur la validation :")
+    print(f1.round(3).to_string())
+
+# %% [markdown]
+# **Analyse de C0 sur la validation.** La réévaluation du checkpoint retrouve
+# l'accuracy de l'epoch retenue (0,556536) et sa loss (1,232023).
+#
+# > *Nos observations :*
+# > - **Classes bien reconnues.** happy obtient le meilleur F1 (0,754, recall
+# >   0,803), suivi de surprise (F1 0,688). Les huit prédictions correctes les
+# >   plus confiantes sont toutes des happy à p = 1,00, avec un large sourire.
+# > - **Confusions principales.** Les paires les plus fréquentes relient sad,
+# >   neutral et fear : sad → neutral (148 images, 20,4 % des sad), sad → fear
+# >   (113), fear → sad (111) et neutral → sad (107). angry → fear arrive ensuite
+# >   (100 images, 16,7 % des angry). Ces confusions vont dans les deux sens.
+# > - **Classes difficiles.** disgust a le F1 le plus bas (0,353). Son recall
+# >   n'est que de 0,231 alors que sa precision atteint 0,750. Le modèle prédit
+# >   donc rarement disgust : 20 prédictions sur 4 307, dont 15 justes (0,231 x 65
+# >   et 15 / 0,750), et la colonne disgust de la matrice est quasi nulle pour les
+# >   autres classes. Ses images partent surtout vers fear et sad (0,22 chacune).
+# >   fear (0,395), sad (0,436) et angry (0,439) suivent.
+# > - **Effet du déséquilibre.** Le recall moyen par classe (macro, 0,494) est
+# >   inférieur à l'accuracy (0,557), car la classe majoritaire happy est la
+# >   mieux reconnue. happy attire aussi une partie des autres classes
+# >   (12 à 13 % des angry, neutral et sad).
+# > - **Erreurs confiantes.** Les huit erreurs les plus confiantes sont toutes
+# >   prédites happy avec p ≥ 0,99. Les visages 1, 2, 4, 6 et 8 montrent un
+# >   sourire ou des dents visibles, alors qu'ils sont annotés surprise, fear,
+# >   angry ou neutral. L'image 7 n'est pas un visage mais un pictogramme
+# >   d'avertissement, annoté neutral.
+# > - **Gain par rapport à B0.** Le F1 macro passe de 0,244 à 0,512. Les plus
+# >   forts gains concernent angry (+0,404), fear (+0,380) et disgust (+0,353),
+# >   trois classes que B0 ne reconnaissait presque pas (F1 ≤ 0,035).
+#
+# > *Nos hypothèses :*
+# > - sad, neutral et fear partagent souvent une bouche fermée et des sourcils
+# >   peu marqués. En 48 x 48 pixels et en niveaux de gris, ces différences fines
+# >   pourraient être difficiles à distinguer. Cette explication n'est pas testée.
+# > - Le modèle semble associer fortement bouche ouverte ou dents visibles à
+# >   happy, ce qui expliquerait les erreurs confiantes vers cette classe.
+# > - Plusieurs erreurs confiantes paraissent ambiguës, et l'image 7 montre un
+# >   bruit d'annotation dans FER2013. Une partie des erreurs ne serait donc pas
+# >   corrigeable par le modèle seul.
+# > - disgust dispose de peu d'exemples (436 en train officiel, 65 en
+# >   validation), ce qui pourrait expliquer son faible recall. Son F1 repose sur
+# >   65 images seulement et reste donc peu stable.
+#
+# > *Limites :* ces résultats décrivent un seul run (seed 42) et le checkpoint
+# > de l'epoch 7, déjà en surapprentissage d'après la phase 4. Les phases 6 et 7
+# > pourront réutiliser cette analyse pour comparer les candidats.
+
+# %% [markdown]
+# ### Test officiel — évaluation unique du modèle final
+#
+# Le test n'est évalué qu'une fois, sur le modèle choisi en phase 6 à partir
+# de la validation. `evaluate_test_once` refuse une seconde évaluation, car
+# `training/logs/test_evaluation.json` existe alors déjà. Les exécutions
+# suivantes relisent ce fichier et affichent la même analyse sans recalculer.
+# L'empreinte du test enregistrée garantit que les images relues sont les
+# mêmes, dans le même ordre.
+
+# %%
+from src.evaluate import evaluate_test_once, load_test_evaluation
+from src.train import _validation_digest
+
+
+# Activer une seule fois, après le choix du modèle final ; ensuite, remettre à False
+# et versionner training/logs/test_evaluation.json.
+RUN_TEST = False
+FINAL_MODEL_ID = None  # Identifiant retenu en phase 6 (par exemple "C0" ou "E2").
+test_payload = load_test_evaluation(LOG_DIR)
+if RUN_TEST and test_payload is not None:
+    print("Test officiel déjà évalué : relecture du résultat, aucune nouvelle évaluation.")
+elif RUN_TEST:
+    assert FINAL_MODEL_ID is not None, "Choisir le modèle final sur la validation avant le test."
+    test_payload = evaluate_test_once(FINAL_MODEL_ID, X_test, y_test, log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+
+if test_payload is None:
+    print("Test officiel non évalué : aucune métrique de test disponible.")
+else:
+    assert test_payload["test_sha256"] == _validation_digest(X_test, y_test)
+    print(f"Test officiel ({test_payload['run_id']}) : accuracy={test_payload['accuracy']:.6f}, "
+          f"loss={test_payload['loss']:.6f}")
+    show_analysis(f"{test_payload['run_id']} test", X_test, y_test,
+                  test_payload["y_pred"], test_payload["confidence"])

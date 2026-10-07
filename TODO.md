@@ -52,10 +52,10 @@ Phases 1 à 6 : socle obligatoire. Enrichissement visé : phase 7 (data augmenta
 - [x] Explications markdown : choix loss/optimiseur/batch/epochs/métriques ; lecture des courbes, sur/sous-apprentissage. Analyse fondée sur le vrai C0 : surapprentissage après l'epoch 7 et limites de la comparaison B0/C0.
 
 ## Phase 5 - Évaluation (3 pts avec la phase 4) - resp. : Maxime
-- [ ] `src/evaluate.py` : charger un modèle sauvegardé, prédire, matrice de confusion, precision/recall/F1 par classe ; images brutes passées par `preprocess_face()`.
-- [ ] Analyse sur la **validation** pendant le développement (C0 puis candidats des phases 6 et 7) : classes bien reconnues, classes confondues, classes difficiles et pourquoi.
-- [ ] Exemples corrects et incorrects (image, vraie classe, prédiction, probabilité) ; plusieurs erreurs commentées.
-- [ ] Test officiel : **une seule évaluation**, sur le modèle final, avec la même analyse (matrice, F1, exemples, limites).
+- [x] `src/evaluate.py` : charger un modèle sauvegardé, prédire, matrice de confusion, precision/recall/F1 par classe ; images brutes passées par `preprocess_face()`.
+- [x] Analyse sur la **validation** pendant le développement (C0 puis candidats des phases 6 et 7) : classes bien reconnues, classes confondues, classes difficiles et pourquoi.
+- [x] Exemples corrects et incorrects (image, vraie classe, prédiction, probabilité) ; plusieurs erreurs commentées.
+- [ ] Test officiel : **une seule évaluation**, sur le modèle final, avec la même analyse (matrice, F1, exemples, limites). Mécanisme prêt (`RUN_TEST`, `evaluate_test_once`), à lancer sur le modèle final.
 
 ## Phase 6 - Expériences (4 pts) - resp. : Paul
 - [ ] Au moins trois expériences, un axe à la fois : E1 architecture (couches, filtres, kernel), E2 régularisation (Dropout ou L2, sans augmentation), E3 learning rate / optimiseur / batch.
