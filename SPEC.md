@@ -23,6 +23,7 @@ Référence commune aux phases. Le sujet fait foi ; le suivi des tâches est dan
 | A1 | Data augmentation (enrichissement, phase 7) |
 
 Chaque expérience change un seul axe par rapport à sa référence. Le modèle final est choisi sur la validation.
+Phase 6 : référence commune C0 ; E1 Dense 128 → 64, E2 Dropout 0,3 après Dense (sans augmentation), E3 Adam learning rate 0,001 → 0,0005. Les autres réglages restent ceux de C0 : filtres 32/64/128, kernel 3, batch 64, seed 42, 30 epochs maximum, patience 5 sur val_loss, meilleurs poids restaurés. Critère fixé avant les runs : val_loss minimale du checkpoint, puis val_accuracy maximale en cas d'égalité exacte, puis id pour un ordre stable. Le candidat de phase 6 reste provisoire jusqu'à A1.
 
 ## Artefacts
 - Historique et configuration : `training/logs/<id>_history.json`.

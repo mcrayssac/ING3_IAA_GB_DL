@@ -148,7 +148,7 @@ def load_history(run_id):
         assert np.all(np.asarray(values) >= 0)
         if "accuracy" in metric:
             assert np.all(np.asarray(values) <= 1)
-    if run_id == "C0":
+    if run_id in ("C0", "E1", "E2", "E3"):
         best_index = int(np.argmin(history["val_loss"]))
         assert payload["best_epoch"] == best_index + 1
         assert payload["config"]["epochs_ran"] == epochs_ran
@@ -627,9 +627,171 @@ if {"B0", "C0"} <= validation_results.keys():
 # > pourront réutiliser cette analyse pour comparer les candidats.
 
 # %% [markdown]
+# ## Phase 6 — Trois expériences à partir de C0
+#
+# Chaque run repart de poids neufs avec la seed 42, le même split stratifié,
+# `/255.0`, les sept classes et les callbacks de C0. Adam, batch 64 et 30 epochs
+# maximum restent communs ; EarlyStopping attend 5 epochs sans baisse de val_loss.
+# Aucun run ne prend les poids ou les réglages d'une autre expérience.
+#
+# | Id | Seule différence avec C0 | Hypothèse à vérifier |
+# |---|---|---|
+# | E1 | Dense 128 → 64 | Moins de paramètres peut limiter la mémorisation. |
+# | E2 | Dropout 0,3 après Dense 128 | Masquer 30 % des activations au train peut réduire le surapprentissage. |
+# | E3 | Learning rate 0,001 → 0,0005 | Des pas plus petits peuvent stabiliser l'optimisation. |
+#
+# **Critère fixé avant les runs :** plus faible val_loss du checkpoint ; puis
+# accuracy validation maximale si égalité exacte ; puis id pour un ordre stable.
+# On compare donc toujours loss et accuracy de la même epoch sauvegardée.
+# La loss tient compte des probabilités, notamment des erreurs trop confiantes.
+# Une seule seed ne permet pas d'affirmer qu'un petit écart est significatif.
+#
+# **Colab GPU :** transférer le code local et les artefacts C0/B0 (voir README),
+# exécuter les cellules de chargement et les définitions précédentes, puis activer
+# explicitement RUN_E1, RUN_E2 et RUN_E3 ci-dessous. Ne pas activer B0, C0 ou le test.
+# Avec les flags False, les historiques sont relus et les checkpoints disponibles
+# sont contrôlés sur la validation, sans fit. Une absence ne produit aucun score.
+
+# %%
+import hashlib
+import tensorflow as tf
+from src.train import PHASE6_EXPERIMENTS, SELECTION_CRITERION, train_experiment
+
+RUN_E1 = False
+RUN_E2 = False
+RUN_E3 = False
+
+
+def run_phase6(run_id, enabled):
+    """Lance explicitement un run GPU en préservant les artefacts et lignes des autres ids."""
+    if not enabled:
+        return
+    import google.colab
+    assert tf.config.list_physical_devices("GPU"), "Choisir un runtime Colab GPU."
+    assert not RUN_B0 and not RUN_C0
+    protected = [path for directory in (LOG_DIR, CHECKPOINT_DIR) for path in directory.glob("*")
+                 if path.is_file() and path.stem != run_id and not path.name.startswith(run_id + "_")
+                 and path.name != "experiments.csv"]
+    hashes = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in protected}
+    rows = [row for row in _read_experiments(LOG_DIR / "experiments.csv") if row["id"] != run_id]
+    trained, _ = train_experiment(run_id, X_train, y_train, X_val, y_val,
+                                  log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+    saved = tf.keras.models.load_model(CHECKPOINT_DIR / f"{run_id}.keras")
+    for actual, expected in zip(saved.get_weights(), trained.get_weights()):
+        np.testing.assert_array_equal(actual, expected)
+    verify_cnn_run(X_val, y_val, run_id=run_id, X_train=X_train, y_train=y_train,
+                   log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+    assert all(hashlib.sha256(path.read_bytes()).hexdigest() == digest for path, digest in hashes.items())
+    assert rows == [row for row in _read_experiments(LOG_DIR / "experiments.csv") if row["id"] != run_id]
+
+# %%
+run_phase6("E1", RUN_E1)
+
+# %%
+run_phase6("E2", RUN_E2)
+
+# %%
+run_phase6("E3", RUN_E3)
+
+# %%
+phase6_payloads = {run_id: load_history(run_id) for run_id in ("C0", "E1", "E2", "E3")}
+phase6_csv = {row["id"]: row for row in _read_experiments(LOG_DIR / "experiments.csv")}
+phase6_rows = []
+phase6_verified = set()
+for run_id, payload in phase6_payloads.items():
+    if payload is None:
+        phase6_rows.append({"id": run_id, "état": "historique absent — run Colab requis"})
+        continue
+    metrics = payload["best_metrics"]
+    checkpoint = CHECKPOINT_DIR / f"{run_id}.keras"
+    if checkpoint.is_file():
+        verify_cnn_run(X_val, y_val, run_id=run_id, X_train=X_train, y_train=y_train,
+                       log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+        phase6_verified.add(run_id)
+    else:
+        print(f"{run_id} : checkpoint absent ({checkpoint}) ; concordance des poids non vérifiée.")
+    if run_id != "C0":
+        plot_history(run_id, payload["history"], payload["best_epoch"])
+    i = payload["best_epoch"] - 1
+    gap = payload["history"]["accuracy"][i] - metrics["val_accuracy"]
+    change = "Référence commune" if run_id == "C0" else PHASE6_EXPERIMENTS[run_id]["modification"]
+    observation = (f"Epoch {i + 1}/{payload['config']['epochs_ran']} ; "
+                   f"écart accuracy train/val {100 * gap:.2f} points")
+    if run_id != "C0":
+        observation += " ; " + phase6_csv.get(run_id, {}).get("observation", "ligne CSV absente")
+    phase6_rows.append({"id": run_id, "modification": change, "val_acc": metrics["val_accuracy"],
+                        "val_loss": metrics["val_loss"], "paramètres": (683527 if run_id == "C0" else payload["config"]["params"]),
+                        "observation": observation, "état": "vérifié" if checkpoint.is_file() else "poids absents"})
+phase6_table = pd.DataFrame(phase6_rows)
+from IPython.display import display
+display(phase6_table)
+print("Sélection :", SELECTION_CRITERION)
+PHASE6_CANDIDATE_ID = None
+if phase6_verified == {"C0", "E1", "E2", "E3"}:
+    PHASE6_CANDIDATE_ID = min(phase6_verified, key=lambda run_id: (
+        phase6_payloads[run_id]["best_metrics"]["val_loss"],
+        -phase6_payloads[run_id]["best_metrics"]["val_accuracy"], run_id))
+    chosen = phase6_payloads[PHASE6_CANDIDATE_ID]
+    architecture = C0_ARCHITECTURE if PHASE6_CANDIDATE_ID == "C0" else PHASE6_EXPERIMENTS[PHASE6_CANDIDATE_ID]["architecture"]
+    print(f"Relais Maxime : candidat provisoire {PHASE6_CANDIDATE_ID}, "
+          f"checkpoint {CHECKPOINT_DIR / (PHASE6_CANDIDATE_ID + '.keras')}")
+    print("Architecture à reproduire pour A1 :", architecture)
+    print("Adam, batch 64, seed 42, epochs max 30, patience 5 ; learning rate :", chosen["config"]["learning_rate"])
+else:
+    print("Relais du meilleur modèle en attente des quatre checkpoints et contrôles réels ; aucun choix définitif.")
+
+# %% [markdown]
+# **Résultats réels du 7 octobre 2026.** E1–E3 ont été exécutés sur Tesla T4,
+# TensorFlow 2.21.0 / Keras 3.13.2, avec le split complet de C0. Les empreintes du
+# split, configurations, checkpoints et métriques JSON/CSV concordent. La relecture
+# locale retrouve les mêmes accuracies et des écarts de loss inférieurs à 2e-7.
+# Les artefacts et lignes B0/C0 ont été préservés ; le test officiel reste intact.
+#
+# | Id | Epoch sauvegardée / exécutées | val_accuracy | val_loss | Paramètres |
+# |---|---:|---:|---:|---:|
+# | C0 | 7 / 12 | 0,556536 | 1,232023 | 683 527 |
+# | E1 | 6 / 11 | 0,542373 | 1,228255 | 388 103 |
+# | E2 | 8 / 13 | 0,557232 | 1,195606 | 683 527 |
+# | E3 | 7 / 12 | 0,559322 | 1,192440 | 683 527 |
+#
+# **E1 — capacité réduite.** La Dense 64 réduit les paramètres de 43,22 %. L'écart
+# d'accuracy train/validation à l'epoch retenue descend à 5,78 points (11,88 pour
+# C0), mais l'accuracy validation perd 1,42 point. La loss ne baisse que de 0,003767.
+# Réduire la mémorisation ne suffit donc pas à améliorer la reconnaissance ; ce
+# candidat compact n'est pas le meilleur selon notre critère de validation.
+#
+# **E2 — Dropout.** À paramètres constants, la loss baisse de 0,036417 par rapport
+# à C0 ; l'accuracy gagne seulement 0,07 point. Le Dropout semble utile ici pour la
+# généralisation des probabilités. Son accuracy train est mesurée avec le masquage
+# actif, ce qui limite la comparaison directe des écarts train/validation. Le
+# surapprentissage persiste : la loss validation remonte à 1,407054 à l'epoch 13,
+# après le minimum de 1,195606 à l'epoch 8. En prédiction, le masquage est désactivé.
+#
+# **E3 — pas d'optimisation plus petit.** La loss baisse de 0,039583 et l'accuracy
+# gagne 0,28 point par rapport à C0. À l'epoch 7, l'accuracy train est 0,623637 contre
+# 0,559322 en validation (écart 6,43 points). La dernière val_loss vaut 1,349853 :
+# diminuer le learning rate ne supprime pas le surapprentissage, d'où le checkpoint
+# de l'epoch 7 plutôt que les poids de l'epoch 12.
+#
+# **Candidat provisoire : E3**, car sa val_loss 1,192440 est la plus basse. E2 reste
+# proche : écart de loss 0,003166 et d'accuracy 0,21 point. Avec une seule seed et
+# une validation déjà utilisée pour sélectionner plusieurs candidats, on ne peut
+# pas conclure à une supériorité générale ou statistiquement établie de E3.
+#
+# **Relais à Maxime pour A1.** Référence : `training/checkpoints/E3.keras` (epoch 7),
+# configuration et historique : `training/logs/E3_history.json`. Reproduction GPU :
+# `train_experiment("E3", X_train, y_train, X_val, y_val)` ou `RUN_E3=True` seul.
+# Architecture : filtres (32,64,128), kernel 3, Dense 128, Dropout 0 ; Adam 0,0005,
+# batch 64, seed 42, maximum 30 epochs, patience 5 sur val_loss et restauration.
+# Maxime construira un modèle neuf de même configuration et ajoutera seulement
+# l'augmentation pour A1. Reprendre les poids E3 ajouterait un effet de poursuite
+# d'entraînement. Le checkpoint sert à comparer la référence. Le choix définitif
+# attend A1 : `FINAL_MODEL_ID=None` et `RUN_TEST=False` restent inchangés.
+
+# %% [markdown]
 # ### Test officiel — évaluation unique du modèle final
 #
-# Le test n'est évalué qu'une fois, sur le modèle choisi en phase 6 à partir
+# Le test n'est évalué qu'une fois, après comparaison avec A1 en phase 7 à partir
 # de la validation. `evaluate_test_once` refuse une seconde évaluation, car
 # `training/logs/test_evaluation.json` existe alors déjà. Les exécutions
 # suivantes relisent ce fichier et affichent la même analyse sans recalculer.
@@ -644,7 +806,7 @@ from src.train import _validation_digest
 # Activer une seule fois, après le choix du modèle final ; ensuite, remettre à False
 # et versionner training/logs/test_evaluation.json.
 RUN_TEST = False
-FINAL_MODEL_ID = None  # Identifiant retenu en phase 6 (par exemple "C0" ou "E2").
+FINAL_MODEL_ID = None  # Choix définitif seulement après la phase 7 (A1).
 test_payload = load_test_evaluation(LOG_DIR)
 if RUN_TEST and test_payload is not None:
     print("Test officiel déjà évalué : relecture du résultat, aucune nouvelle évaluation.")

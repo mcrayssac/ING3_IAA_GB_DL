@@ -1,4 +1,4 @@
-"""Entraînement B0/C0 et smoke tests locaux."""
+"""Entraînement B0/C0/E1–E3 et smoke tests locaux."""
 
 import argparse
 import csv
@@ -30,6 +30,16 @@ FULL_TRAIN_SIZE = 24402
 FULL_VAL_SIZE = 4307
 RELOAD_RTOL = 1e-5
 RELOAD_ATOL = 1e-6
+C0_ARCHITECTURE = dict(filters=(32, 64, 128), kernel_size=3, dense_units=128, seed=SEED, dropout_rate=0.0)
+PHASE6_EXPERIMENTS = {
+    "E1": dict(architecture={**C0_ARCHITECTURE, "dense_units": 64}, learning_rate=LEARNING_RATE,
+               modification="C0 : Dense 128 → 64 uniquement"),
+    "E2": dict(architecture={**C0_ARCHITECTURE, "dropout_rate": 0.3}, learning_rate=LEARNING_RATE,
+               modification="C0 : Dropout 0,3 après Dense uniquement, sans augmentation"),
+    "E3": dict(architecture=dict(C0_ARCHITECTURE), learning_rate=5e-4,
+               modification="C0 : learning rate 0,001 → 0,0005 uniquement"),
+}
+SELECTION_CRITERION = "val_loss minimale du checkpoint ; puis val_accuracy maximale ; puis id"
 
 
 def _validation_digest(X: np.ndarray, y: np.ndarray) -> str:
@@ -191,8 +201,12 @@ def train_cnn(
     log_dir: str | Path = LOG_DIR,
     checkpoint_dir: str | Path = CHECKPOINT_DIR,
     verbose: int = 2,
+    run_id: str = "C0",
+    modification: str = "CNN de départ",
 ) -> tuple[tf.keras.Model, dict[str, list[float]]]:
     """Applique le protocole CNN à un modèle neuf fourni par une fabrique sans argument."""
+    if run_id not in ("C0", *PHASE6_EXPERIMENTS):
+        raise ValueError("Identifiant CNN attendu : C0, E1, E2 ou E3.")
     if not 1 <= epochs <= CNN_MAX_EPOCHS or batch_size < 1 or not np.isfinite(learning_rate) or learning_rate <= 0:
         raise ValueError("epochs doit être dans [1,30], batch_size et learning_rate positifs.")
     if smoke:
@@ -222,7 +236,7 @@ def train_cnn(
     assert predictions.shape == (min(batch_size, len(y_train)), K)
     assert np.isfinite(predictions).all()
     np.testing.assert_allclose(predictions.sum(axis=1), 1.0, atol=1e-6)
-    run_id = "smoke" if smoke else "C0"
+    run_id = "smoke" if smoke else run_id
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     callbacks = [
         tf.keras.callbacks.ModelCheckpoint(
@@ -254,6 +268,16 @@ def train_cnn(
         "tensorflow_version": tf.__version__, "keras_version": tf.keras.__version__,
         "gpu_devices": [device.name for device in tf.config.list_physical_devices("GPU")],
         "prediction_device": prediction_tensor.device,
+        "train_sha256": _validation_digest(X_train, y_train),
+        "augmentation": False,
+        "architecture": {
+            "filters": [layer.filters for layer in model.layers if isinstance(layer, tf.keras.layers.Conv2D)],
+            "kernel_size": list(next(layer.kernel_size for layer in model.layers if isinstance(layer, tf.keras.layers.Conv2D))),
+            "dense_units": model.layers[-3].units if isinstance(model.layers[-2], tf.keras.layers.Dropout) else model.layers[-2].units,
+            "dropout_rate": next((layer.rate for layer in model.layers if isinstance(layer, tf.keras.layers.Dropout)), 0.0),
+            "seed": seed,
+        },
+        "params": model.count_params(),
     }
     payload = {
         "id": run_id, "config": config, "history": history,
@@ -265,7 +289,7 @@ def train_cnn(
     )
     if not smoke:
         _write_experiment(log_dir / "experiments.csv", {
-            "id": "C0", "modification": "CNN de départ",
+            "id": run_id, "modification": modification,
             "val_acc": best_metrics["val_accuracy"], "val_loss": best_metrics["val_loss"],
             "params": model.count_params(),
             "observation": (
@@ -277,18 +301,40 @@ def train_cnn(
     return model, history
 
 
+def train_experiment(run_id, X_train, y_train, X_val, y_val, *, smoke=False,
+                     log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR, verbose=2):
+    """Exécute une variante isolée de C0, complète sur Colab GPU ou smoke temporaire."""
+    experiment = PHASE6_EXPERIMENTS[run_id]
+    if not smoke:
+        import google.colab
+        assert tf.config.list_physical_devices("GPU"), "Runtime Colab GPU requis."
+        assert len(y_train) == FULL_TRAIN_SIZE and len(y_val) == FULL_VAL_SIZE
+        reference = json.loads((Path(log_dir) / "C0_history.json").read_text())
+        assert _validation_digest(X_val, y_val) == reference["config"]["validation_sha256"]
+    return train_cnn(
+        lambda: build_cnn(**experiment["architecture"]), X_train, y_train, X_val, y_val,
+        epochs=CNN_MAX_EPOCHS, batch_size=BATCH_SIZE, learning_rate=experiment["learning_rate"], seed=SEED,
+        smoke=smoke, run_id=run_id, modification=experiment["modification"],
+        log_dir=log_dir, checkpoint_dir=checkpoint_dir, verbose=verbose,
+    )
+
+
 def verify_cnn_run(
     X_val: np.ndarray, y_val: np.ndarray, *,
     log_dir: str | Path = LOG_DIR, checkpoint_dir: str | Path = CHECKPOINT_DIR,
+    run_id: str = "C0",
+    X_train: np.ndarray | None = None, y_train: np.ndarray | None = None,
 ) -> dict:
-    """Contrôle le vrai C0 et évalue uniquement sa validation identifiée par hash."""
+    """Contrôle un run CNN réel et évalue seulement sa validation identifiée par hash."""
     _check_data(X_val, y_val)
-    payload = json.loads((Path(log_dir) / "C0_history.json").read_text(encoding="utf-8"))
+    payload = json.loads((Path(log_dir) / f"{run_id}_history.json").read_text(encoding="utf-8"))
     config, history = payload["config"], payload["history"]
-    assert payload["id"] == "C0" and set(history) == set(METRIC_NAMES)
+    assert payload["id"] == run_id and set(history) == set(METRIC_NAMES)
+    experiment = PHASE6_EXPERIMENTS.get(run_id)
+    learning_rate = LEARNING_RATE if experiment is None else experiment["learning_rate"]
     expected = {
         "seed": SEED, "epochs": CNN_MAX_EPOCHS, "batch_size": BATCH_SIZE,
-        "learning_rate": LEARNING_RATE, "train_size": FULL_TRAIN_SIZE, "val_size": FULL_VAL_SIZE,
+        "learning_rate": learning_rate, "train_size": FULL_TRAIN_SIZE, "val_size": FULL_VAL_SIZE,
         "optimizer": "Adam", "loss": "sparse_categorical_crossentropy", "metrics": ["accuracy"],
         "class_names": list(CLASS_NAMES), "monitor": "val_loss", "mode": "min",
         "save_best_only": True, "patience": CNN_PATIENCE, "restore_best_weights": True,
@@ -296,6 +342,17 @@ def verify_cnn_run(
     assert all(config[key] == value for key, value in expected.items())
     assert config["gpu_devices"] and "GPU:" in config["prediction_device"]
     assert len(y_val) == FULL_VAL_SIZE and _validation_digest(X_val, y_val) == config["validation_sha256"]
+    if experiment is not None:
+        reference = json.loads((Path(log_dir) / "C0_history.json").read_text())
+        assert config["validation_sha256"] == reference["config"]["validation_sha256"]
+        assert config["augmentation"] is False
+        assert X_train is not None and y_train is not None
+        _check_data(X_train, y_train)
+        assert len(y_train) == FULL_TRAIN_SIZE
+        assert config["train_sha256"] == _validation_digest(X_train, y_train)
+        architecture = experiment["architecture"]
+        assert config["architecture"] == {**architecture, "filters": list(architecture["filters"]),
+                                          "kernel_size": [architecture["kernel_size"]] * 2}
     epochs_ran = len(history["val_loss"])
     assert 1 <= epochs_ran == config["epochs_ran"] <= CNN_MAX_EPOCHS
     for key, values in history.items():
@@ -314,27 +371,30 @@ def verify_cnn_run(
     assert trace["train_size"] == FULL_TRAIN_SIZE and trace["val_size"] == FULL_VAL_SIZE
     assert trace["versions"]["tensorflow"] == config["tensorflow_version"]
     assert trace["versions"]["keras"] == config["keras_version"]
-    assert trace["preserved_rows"] == [row for row in rows if row["id"] != "C0"]
+    assert all(row in rows for row in trace["preserved_rows"])
     project_root = Path(__file__).resolve().parents[1]
     for relative, digest in trace["preserved_artifacts_sha256"].items():
         assert hashlib.sha256((project_root / relative).read_bytes()).hexdigest() == digest
     local_rows = _read_experiments(project_root / LOG_DIR / "experiments.csv")
     assert all(row in local_rows for row in trace["preserved_rows"])
-    row = next(row for row in rows if row["id"] == "C0")
+    row = next(row for row in rows if row["id"] == run_id)
+    if experiment is not None:
+        assert row["modification"] == experiment["modification"]
     for field, metric in (("val_acc", "val_accuracy"), ("val_loss", "val_loss")):
         np.testing.assert_allclose(float(row[field]), history[metric][best_index], rtol=1e-7, atol=1e-8)
-    restored = tf.keras.models.load_model(Path(checkpoint_dir) / "C0.keras")
-    expected_model = build_cnn()
+    restored = tf.keras.models.load_model(Path(checkpoint_dir) / f"{run_id}.keras")
+    expected_model = build_cnn(**(C0_ARCHITECTURE if experiment is None else experiment["architecture"]))
     assert restored.input_shape == (None, *INPUT_SHAPE) and restored.output_shape == (None, K)
     assert K == len(CLASS_NAMES) == restored.layers[-1].units
     assert restored.count_params() == int(row["params"]) == expected_model.count_params()
+    assert len(restored.layers) == len(expected_model.layers)
     for saved, expected_layer in zip(restored.layers, expected_model.layers):
         assert type(saved) is type(expected_layer)
         assert {key: value for key, value in saved.get_config().items() if key != "name"} == {
             key: value for key, value in expected_layer.get_config().items() if key != "name"
         }
     assert restored.loss == expected["loss"] and isinstance(restored.optimizer, tf.keras.optimizers.Adam)
-    np.testing.assert_allclose(float(restored.optimizer.learning_rate.numpy()), LEARNING_RATE)
+    np.testing.assert_allclose(float(restored.optimizer.learning_rate.numpy()), learning_rate)
     assert int(restored.optimizer.iterations.numpy()) == (best_index + 1) * int(np.ceil(FULL_TRAIN_SIZE / BATCH_SIZE))
     predictions = restored(X_val[:BATCH_SIZE], training=False).numpy()
     assert predictions.shape == (BATCH_SIZE, K) and np.isfinite(predictions).all()
@@ -343,7 +403,7 @@ def verify_cnn_run(
     for key in ("loss", "accuracy"):
         np.testing.assert_allclose(metrics[key], history[f"val_{key}"][best_index], rtol=RELOAD_RTOL, atol=RELOAD_ATOL)
     report = {"epochs_ran": epochs_ran, "best_epoch": best_index + 1, "validation_reloaded": metrics}
-    print("C0 vérifié (validation uniquement) :", report)
+    print(f"{run_id} vérifié (validation uniquement) :", report)
     return report
 
 
