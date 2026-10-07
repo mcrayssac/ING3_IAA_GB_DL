@@ -344,3 +344,18 @@ def test_evaluation_and_single_test_guard(tmp_path: Path) -> None:
     assert evaluation.load_test_evaluation(tmp_path) == first
     with pytest.raises(FileExistsError):
         evaluation.evaluate_test_once("M", X, y, log_dir=tmp_path, checkpoint_dir=tmp_path)
+
+
+def test_augmented_batches() -> None:
+    """L'augmentation A1 garde forme et plage, modifie les images et reste reproductible."""
+    X = np.random.default_rng(SEED).random((16, 48, 48, 1), dtype=np.float32)
+    y = np.arange(16, dtype=np.int64) % K
+    plain = next(iter(mlp_training._batches(X, y, 16, SEED, shuffle=False)))[0].numpy()
+    first, second = (
+        next(iter(mlp_training._batches(X, y, 16, SEED, shuffle=False, augment=True)))[0].numpy()
+        for _ in range(2)
+    )
+    assert first.shape == plain.shape == (16, 48, 48, 1)
+    assert 0.0 <= first.min() <= first.max() <= 1.0
+    assert not np.allclose(first, plain)
+    np.testing.assert_array_equal(first, second)

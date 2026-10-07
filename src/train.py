@@ -38,6 +38,9 @@ PHASE6_EXPERIMENTS = {
                modification="C0 : Dropout 0,3 après Dense uniquement, sans augmentation"),
     "E3": dict(architecture=dict(C0_ARCHITECTURE), learning_rate=5e-4,
                modification="C0 : learning rate 0,001 → 0,0005 uniquement"),
+    # Phase 7 : même protocole que E3, seule l'augmentation du train change.
+    "A1": dict(architecture=dict(C0_ARCHITECTURE), learning_rate=5e-4, augmentation=True,
+               modification="E3 : data augmentation uniquement (flip, rotation, translation, zoom, contraste)"),
 }
 SELECTION_CRITERION = "val_loss minimale du checkpoint ; puis val_accuracy maximale ; puis id"
 
@@ -58,18 +61,33 @@ def _check_data(X: np.ndarray, y: np.ndarray) -> None:
     assert np.all((0 <= y) & (y < K))
 
 
-def _batches(X: np.ndarray, y: np.ndarray, batch_size: int, seed: int, shuffle: bool):
-    """Forme des batches sans appliquer une seconde normalisation."""
+def _augmentation(seed: int = SEED) -> tf.keras.Sequential:
+    """Transformations aléatoires du train A1 ; inactives hors de training=True."""
+    return tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal", seed=seed),
+        tf.keras.layers.RandomRotation(0.05, seed=seed),  # ±18°
+        tf.keras.layers.RandomTranslation(0.15, 0.15, seed=seed),
+        tf.keras.layers.RandomZoom(0.15, seed=seed),
+        tf.keras.layers.RandomContrast(0.2, value_range=(0, 1), seed=seed),
+    ], name="augmentation")
+
+
+def _batches(X: np.ndarray, y: np.ndarray, batch_size: int, seed: int, shuffle: bool, augment: bool = False):
+    """Forme des batches sans seconde normalisation ; augmente seulement si demandé."""
     dataset = tf.data.Dataset.from_tensor_slices((X, y))
     if shuffle:
         dataset = dataset.shuffle(len(y), seed=seed, reshuffle_each_iteration=True)
     dataset = dataset.batch(batch_size)
+    if augment:
+        augmentation = _augmentation(seed)
+        dataset = dataset.map(lambda images, labels: (augmentation(images, training=True), labels))
     options = tf.data.Options()
     options.experimental_deterministic = True
     options.threading.private_threadpool_size = 1
     dataset = dataset.with_options(options)
     images, labels = next(iter(dataset))
     assert images.shape == (len(labels), *INPUT_SHAPE)
+    assert 0.0 <= float(tf.reduce_min(images)) <= float(tf.reduce_max(images)) <= 1.0
     return dataset
 
 
@@ -203,10 +221,11 @@ def train_cnn(
     verbose: int = 2,
     run_id: str = "C0",
     modification: str = "CNN de départ",
+    augmentation: bool = False,
 ) -> tuple[tf.keras.Model, dict[str, list[float]]]:
     """Applique le protocole CNN à un modèle neuf fourni par une fabrique sans argument."""
     if run_id not in ("C0", *PHASE6_EXPERIMENTS):
-        raise ValueError("Identifiant CNN attendu : C0, E1, E2 ou E3.")
+        raise ValueError("Identifiant CNN attendu : C0, E1, E2, E3 ou A1.")
     if not 1 <= epochs <= CNN_MAX_EPOCHS or batch_size < 1 or not np.isfinite(learning_rate) or learning_rate <= 0:
         raise ValueError("epochs doit être dans [1,30], batch_size et learning_rate positifs.")
     if smoke:
@@ -247,7 +266,7 @@ def train_cnn(
         ),
     ]
     result = model.fit(
-        _batches(X_train, y_train, batch_size, seed, shuffle=True),
+        _batches(X_train, y_train, batch_size, seed, shuffle=True, augment=augmentation),
         validation_data=_batches(X_val, y_val, batch_size, seed, shuffle=False),
         epochs=epochs, shuffle=False, callbacks=callbacks, verbose=verbose,
     )
@@ -269,7 +288,7 @@ def train_cnn(
         "gpu_devices": [device.name for device in tf.config.list_physical_devices("GPU")],
         "prediction_device": prediction_tensor.device,
         "train_sha256": _validation_digest(X_train, y_train),
-        "augmentation": False,
+        "augmentation": augmentation,
         "architecture": {
             "filters": [layer.filters for layer in model.layers if isinstance(layer, tf.keras.layers.Conv2D)],
             "kernel_size": list(next(layer.kernel_size for layer in model.layers if isinstance(layer, tf.keras.layers.Conv2D))),
@@ -315,6 +334,7 @@ def train_experiment(run_id, X_train, y_train, X_val, y_val, *, smoke=False,
         lambda: build_cnn(**experiment["architecture"]), X_train, y_train, X_val, y_val,
         epochs=CNN_MAX_EPOCHS, batch_size=BATCH_SIZE, learning_rate=experiment["learning_rate"], seed=SEED,
         smoke=smoke, run_id=run_id, modification=experiment["modification"],
+        augmentation=experiment.get("augmentation", False),
         log_dir=log_dir, checkpoint_dir=checkpoint_dir, verbose=verbose,
     )
 
@@ -345,7 +365,7 @@ def verify_cnn_run(
     if experiment is not None:
         reference = json.loads((Path(log_dir) / "C0_history.json").read_text())
         assert config["validation_sha256"] == reference["config"]["validation_sha256"]
-        assert config["augmentation"] is False
+        assert config["augmentation"] is experiment.get("augmentation", False)
         assert X_train is not None and y_train is not None
         _check_data(X_train, y_train)
         assert len(y_train) == FULL_TRAIN_SIZE

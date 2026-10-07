@@ -55,15 +55,15 @@ Phases 1 à 6 : socle obligatoire. Enrichissement visé : phase 7 (data augmenta
 - [x] `src/evaluate.py` : charger un modèle sauvegardé, prédire, matrice de confusion, precision/recall/F1 par classe ; images brutes passées par `preprocess_face()`.
 - [x] Analyse sur la **validation** pendant le développement (C0 puis candidats des phases 6 et 7) : classes bien reconnues, classes confondues, classes difficiles et pourquoi.
 - [x] Exemples corrects et incorrects (image, vraie classe, prédiction, probabilité) ; plusieurs erreurs commentées.
-- [ ] Test officiel : **une seule évaluation**, sur le modèle final, avec la même analyse (matrice, F1, exemples, limites). Mécanisme prêt (`RUN_TEST`, `evaluate_test_once`), à lancer sur le modèle final.
+- [x] Test officiel : **une seule évaluation**, sur le modèle final A1, avec la même analyse (matrice, F1, exemples, limites). Accuracy 0,575508 / loss 1,131685 (validation 0,577200 / 1,126252) ; `test_evaluation.json` versionné, seconde évaluation refusée.
 
 ## Phase 6 - Expériences (4 pts) - resp. : Paul
 - [x] Trois expériences indépendantes de C0 : E1 Dense 64 (epoch 6/11), E2 Dropout 0,3 sans augmentation (8/13), E3 learning rate 0,0005 (7/12), runs complets Colab Tesla T4 ; JSON/CSV/checkpoints et split vérifiés en local, B0/C0 préservés. Smoke 256/64/1 temporaires, 30 tests réussis et diff propre.
 - [x] `experiments.csv` complet, courbes/tableau et analyse réelle dans le notebook ; relecture locale et Colab flags False avec fit interdit, cas sans artefacts vérifié en local. Relais Maxime : E3, val_loss 1,192440 / val_acc 0,559322, checkpoint `training/checkpoints/E3.keras`, configuration `training/logs/E3_history.json` ; critère fixé avant runs : val_loss minimale, puis accuracy maximale en cas d'égalité. Reproduction et limites documentées dans README/notebook.
-- [ ] Choix définitif parmi C0, E1 à E3 et A1 : dépend de la phase 7 (Maxime), puis évaluation test unique (phase 5). Garder `RUN_TEST=False` et `FINAL_MODEL_ID=None` jusque-là.
+- [x] Choix définitif parmi C0, E1 à E3 et A1 par le critère fixé avant les runs : **A1** (val_loss 1,126252, val_acc 0,577200), puis évaluation test unique (phase 5). `FINAL_MODEL_ID="A1"`, `RUN_TEST=False`.
 
 ## Phase 7 - Enrichissement : data augmentation (2 pts avec les phases 8 et 9) - resp. : Maxime
-- [ ] Data augmentation (id `A1`) sur le meilleur modèle de la phase 6, comparée sur la validation ; un seul enrichissement.
+- [x] Data augmentation (id `A1`) : E3 + augmentation du train dans `tf.data` (flip, rotation ±18°, translation/zoom ±15 %, contraste ±20 %), poids neufs, même split et budget ; run Colab GPU vérifié en local (epoch 24/29). Par rapport à E3 : val_loss −0,066188, val_acc +1,79 point, surapprentissage retardé ; F1 macro 0,507 → 0,502 (disgust et fear en recul).
 
 ## Phase 8 - Détection de plusieurs visages (YOLO, extension optionnelle)
 - [ ] Choisir et justifier le détecteur : un YOLO pré-entraîné sur COCO détecte des personnes, pas des visages ; utiliser un modèle entraîné sur des visages ou justifier une alternative.
