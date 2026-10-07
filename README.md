@@ -58,6 +58,31 @@ Les résultats de l'epoch 5 sont `val_accuracy = 0.360808` et `val_loss = 1.6603
 
 Il utilise au plus 256 train / 64 validation / 1 epoch et écrit `smoke_history.json` / `smoke.keras`, sans ligne B0. Le chargeur prétraite une seule fois les images ; le test officiel, chargé séparément, n'est transmis ni au modèle ni à `fit`. Ces métriques servent au contrôle technique local.
 
+## Phase 6 : expériences et relais à Maxime
+
+`PHASE6_EXPERIMENTS` dans `src/train.py` fixe trois variantes indépendantes de C0 : E1 réduit uniquement Dense de 128 à 64 (388 103 paramètres), E2 ajoute uniquement Dropout 0,3 après Dense (683 527 paramètres, sans augmentation), E3 réduit uniquement le learning rate Adam de 0,001 à 0,0005. Les autres réglages restent ceux de C0 : seed 42, split complet 24 402/4 307, batch 64, maximum 30 epochs, patience 5 sur val_loss et meilleurs poids restaurés.
+
+Le critère fixé avant les runs est la val_loss minimale du checkpoint, puis l'accuracy validation maximale en cas d'égalité exacte. Les cellules de phase 6 de `notebooks/projet.py` gardent `RUN_E1`, `RUN_E2`, `RUN_E3` à False par défaut ; elles relisent les historiques, affichent les courbes/tableau et vérifient les checkpoints disponibles sans réentraîner. Un artefact absent est signalé ; le relais reste en attente tant que tous les runs ne sont pas vérifiés.
+
+Pour les runs complets, générer le notebook avec `.venv/bin/jupytext --to ipynb notebooks/projet.py`, transférer le code local `src/`, `notebooks/projet.py`, les références `training/logs/B0*`, `training/logs/C0*`, `experiments.csv` et les checkpoints B0/C0 dans Colab, ainsi que FER2013 (procédure d'archives : `docs/B0_COLAB.md`). Dans un runtime GPU, exécuter les définitions et le chargement, puis activer seulement les trois flags E1–E3. Les runs ne nécessitent aucune installation supplémentaire dans Colab. Récupérer `training/logs/E*_history.json`, `training/logs/experiments.csv` et `training/checkpoints/E*.keras` ; les checkpoints restent ignorés par Git.
+
+Contrôle d'un run réel, après chargement du split avec `load_dataset` : `verify_cnn_run(X_val, y_val, run_id="E1", X_train=X_train, y_train=y_train)` (idem E2/E3). Pour un smoke temporaire : `train_experiment("E1", X_train, y_train, X_val, y_val, smoke=True, log_dir=<temp>/logs, checkpoint_dir=<temp>/checkpoints)` ; au plus 256/64/1, aucune ligne dans le CSV officiel.
+
+Maxime reproduira la configuration du candidat provisoire avec une initialisation neuve seed 42 et ajoutera seulement l'augmentation pour A1. Le checkpoint sert de référence de comparaison ; poursuivre son entraînement ajouterait un second effet. Le choix définitif attend A1 : `RUN_TEST=False`, `FINAL_MODEL_ID=None`.
+
+Runs réels du 7 octobre 2026 sur Tesla T4 (TensorFlow 2.21.0 / Keras 3.13.2), dans le [notebook d'exécution Colab](https://colab.research.google.com/drive/1qt1Swy4VEE67PCs_VjhMG7T5WUWxGNfy), cellules phase 6 ajoutées à la suite de C0 :
+
+| Id | Epoch retenue / exécutées | val_acc | val_loss | Paramètres |
+|---|---:|---:|---:|---:|
+| C0 | 7 / 12 | 0,556536 | 1,232023 | 683 527 |
+| E1 | 6 / 11 | 0,542373 | 1,228255 | 388 103 |
+| E2 | 8 / 13 | 0,557232 | 1,195606 | 683 527 |
+| E3 | 7 / 12 | 0,559322 | 1,192440 | 683 527 |
+
+**Relais à Maxime : E3**, selon la val_loss minimale fixée avant les runs. Sa configuration est l'architecture C0 sans Dropout, avec **Adam à 0,0005**, batch 64, seed 42 et les callbacks C0. Référence : `training/checkpoints/E3.keras` (epoch 7, ignoré par Git), configuration complète : `training/logs/E3_history.json`. Reproduire sur Colab GPU avec `train_experiment("E3", X_train, y_train, X_val, y_val)` ou `RUN_E3=True` seul ; utiliser cette configuration avec un modèle neuf pour A1. E2 est proche (écart de loss 0,003166) : une seule seed ne démontre pas une supériorité générale. L'analyse des trois variations et du surapprentissage est dans le notebook.
+
+Les historiques/checkpoints ont été récupérés, leurs empreintes contrôlées et les métriques JSON/CSV confrontées à la validation rechargée en local (écart de loss inférieur à 2e-7). La relecture flags False est vérifiée en local et dans Colab avec `fit` interdit ; les trois courbes ont été inspectées, et le cas sans artefacts ne produit ni métrique ni candidat. Les historiques/checkpoints B0/C0 et leurs lignes CSV sont préservés. Aucun run E1–E3 ni analyse n'est encore nécessaire ; le choix définitif et le test unique attendent A1 en phase 7.
+
 ## Protocole fixé
 
 | Élément | Choix |
@@ -75,11 +100,11 @@ Il utilise au plus 256 train / 64 validation / 1 epoch et écrit `smoke_history.
 ```text
 src/data.py             chargement, split et prétraitement
 src/models.py           build_mlp() et build_cnn(), entrée image et sortie softmax
-src/train.py            entraînement MLP, smoke local et enregistrement B0
+src/train.py            entraînement B0/C0/E1–E3, smoke et contrôle des checkpoints
 src/evaluate.py         évaluation, rapport par classe, exemples et test unique
 notebooks/projet.py     source Jupytext du notebook
 tests/test_shapes.py    contrats des données, intégrité du split et sortie MLP
-training/logs/          historique B0 réel et experiments.csv
+training/logs/          historiques/configurations réels et experiments.csv
 docs/B0_COLAB.md        reproduction Colab et vérification des résultats
 SPEC.md                 décisions techniques
 TODO.md                 phases du projet

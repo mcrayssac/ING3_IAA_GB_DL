@@ -232,13 +232,17 @@ def test_invalid_csv_fails_before_training(tmp_path: Path, monkeypatch, contents
     assert [path.read_bytes() for path in paths] == previous
 
 
-def test_cnn_best_epoch_after_early_stopping(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("run_id", ["C0", "E1", "E2", "E3"])
+def test_cnn_best_epoch_after_early_stopping(tmp_path: Path, monkeypatch, run_id) -> None:
     """Simule un arrêt anticipé sans entraînement et vérifie poids et métriques associés."""
     logs, checkpoints = tmp_path / "logs", tmp_path / "checkpoints"
     csv_path = logs / "experiments.csv"
     baseline = dict(zip(mlp_training.EXPERIMENT_FIELDS, ("B0", "baseline", 0.3, 1.8, 295943, "préservé")))
     mlp_training._write_experiment(csv_path, baseline)
     previous_csv = csv_path.read_bytes()
+    experiment = mlp_training.PHASE6_EXPERIMENTS.get(run_id)
+    architecture = mlp_training.C0_ARCHITECTURE if experiment is None else experiment["architecture"]
+    learning_rate = 1e-3 if experiment is None else experiment["learning_rate"]
     recorded = []
     monkeypatch.setattr(mlp_training, "_write_experiment", lambda path, row: recorded.append(row))
 
@@ -251,7 +255,7 @@ def test_cnn_best_epoch_after_early_stopping(tmp_path: Path, monkeypatch) -> Non
         assert checkpoint.save_best_only and stopping.restore_best_weights
         assert stopping.patience == 5
         assert model.loss == "sparse_categorical_crossentropy"
-        np.testing.assert_allclose(float(model.optimizer.learning_rate.numpy()), 1e-3)
+        np.testing.assert_allclose(float(model.optimizer.learning_rate.numpy()), learning_rate)
         model.stop_training = False
         for callback in callbacks:
             callback.set_model(model)
@@ -277,17 +281,19 @@ def test_cnn_best_epoch_after_early_stopping(tmp_path: Path, monkeypatch) -> Non
     images = np.zeros((4, *mlp_training.INPUT_SHAPE), dtype=np.float32)
     labels = np.zeros(4, dtype=np.int64)
     model, history = mlp_training.train_cnn(
-        build_cnn, images, labels, images, labels, log_dir=logs, checkpoint_dir=checkpoints, verbose=0,
+        lambda: build_cnn(**architecture), images, labels, images, labels,
+        run_id=run_id, learning_rate=learning_rate, log_dir=logs, checkpoint_dir=checkpoints, verbose=0,
     )
-    payload = json.loads((logs / "C0_history.json").read_text(encoding="utf-8"))
+    payload = json.loads((logs / f"{run_id}_history.json").read_text(encoding="utf-8"))
     assert payload["best_epoch"] == 2
     assert payload["config"]["epochs_ran"] == 7 < payload["config"]["epochs"] == 30
     assert payload["history"] == history
     assert payload["best_metrics"]["val_loss"] == recorded[0]["val_loss"] == 1.0
     assert payload["best_metrics"]["val_accuracy"] == recorded[0]["val_acc"] == 0.2
-    assert recorded[0]["params"] == 683527
+    assert recorded[0]["id"] == payload["id"] == run_id
+    assert recorded[0]["params"] == build_cnn(**architecture).count_params()
     assert "Meilleure epoch 2/7" in recorded[0]["observation"]
-    restored = mlp_training.tf.keras.models.load_model(checkpoints / "C0.keras", compile=False)
+    restored = mlp_training.tf.keras.models.load_model(checkpoints / f"{run_id}.keras", compile=False)
     for saved, returned in zip(restored.get_weights(), model.get_weights()):
         np.testing.assert_array_equal(saved, returned)
     np.testing.assert_array_equal(restored.layers[-1].bias.numpy(), np.ones(K))

@@ -10,6 +10,7 @@ HIDDEN_UNITS = 128
 INPUT_SHAPE = (*IMAGE_SIZE, CHANNELS)
 CNN_FILTERS = (32, 64, 128)
 KERNEL_SIZE = 3
+DROPOUT_RATE = 0.0
 
 
 def build_mlp(hidden_units: int = HIDDEN_UNITS, seed: int = SEED) -> tf.keras.Model:
@@ -35,10 +36,13 @@ def build_cnn(
     kernel_size: int = KERNEL_SIZE,
     dense_units: int = HIDDEN_UNITS,
     seed: int = SEED,
+    dropout_rate: float = DROPOUT_RATE,
 ) -> tf.keras.Model:
     """Construit un CNN : blocs Conv2D + ReLU puis MaxPooling, puis classifieur dense."""
     if len(filters) < 2:
         raise ValueError("Le CNN doit comporter au moins deux blocs de convolution.")
+    if not 0 <= dropout_rate < 1:
+        raise ValueError("dropout_rate doit être dans [0,1[.")
     tf.keras.utils.set_random_seed(seed)
     layers = [tf.keras.Input(shape=INPUT_SHAPE)]
     for count in filters:
@@ -49,8 +53,10 @@ def build_cnn(
     layers += [
         tf.keras.layers.Flatten(),
         tf.keras.layers.Dense(dense_units, activation="relu"),
-        tf.keras.layers.Dense(K, activation="softmax"),
     ]
+    if dropout_rate:
+        layers.append(tf.keras.layers.Dropout(dropout_rate, seed=seed))
+    layers.append(tf.keras.layers.Dense(K, activation="softmax"))
     model = tf.keras.Sequential(layers, name="cnn")
     assert model.input_shape == (None, 48, 48, 1)
     assert model.output_shape == (None, K)
