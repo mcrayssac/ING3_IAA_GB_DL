@@ -165,7 +165,7 @@ def plot_history(run_id, history, best_epoch=None):
         axis.plot(epoch_numbers, history[f"val_{metric}"], label="Validation")
         if best_epoch is not None:
             axis.axvline(best_epoch, color="gray", linestyle="--", label="Meilleure val_loss")
-        axis.set(title=f"{run_id} — {title}", xlabel="Epoch", ylabel=metric, xticks=list(epoch_numbers))
+        axis.set(title=f"{run_id} - {title}", xlabel="Epoch", ylabel=metric, xticks=list(epoch_numbers))
         axis.legend()
     plt.tight_layout()
     plt.show()
@@ -330,7 +330,7 @@ print(f"CNN C0 : {cnn.count_params():,} paramètres, contre {model.count_params(
 # > vérifier ces deux points.
 
 # %% [markdown]
-# ## Phase 4 — entraînement C0 et comparaison
+# ## Phase 4 - entraînement C0 et comparaison
 #
 # **Protocole.** Nous conservons le split stratifié, les pixels déjà normalisés
 # et les labels entiers. La cross-entropie est `-log(p_classe_attendue)` : elle
@@ -471,7 +471,7 @@ print("B0 : dernière epoch ; C0 : première meilleure epoch sur val_loss. Accur
 # %%
 if c0_history is not None:
     best_index = c0_payload["best_epoch"] - 1
-    print(f"C0 — loss train : {c0_history['loss'][0]:.6f} → {c0_history['loss'][-1]:.6f} ; "
+    print(f"C0 - loss train : {c0_history['loss'][0]:.6f} → {c0_history['loss'][-1]:.6f} ; "
           f"loss validation : {c0_history['val_loss'][0]:.6f} → {c0_history['val_loss'][-1]:.6f}.")
     print(f"À l'epoch retenue {best_index + 1} : accuracy train={c0_history['accuracy'][best_index]:.6f}, "
           f"validation={c0_history['val_accuracy'][best_index]:.6f} ; val_loss={c0_history['val_loss'][best_index]:.6f}.")
@@ -483,7 +483,7 @@ else:
     print("Analyse C0 en attente du vrai historique Colab GPU ; aucun score C0 disponible.")
 
 # %% [markdown]
-# ## Phase 5 — évaluation et analyse des erreurs
+# ## Phase 5 - évaluation et analyse des erreurs
 #
 # L'accuracy ne suffit pas ici, car les classes sont déséquilibrées : disgust
 # ne compte que 436 images dans le train officiel, contre 7 215 pour happy.
@@ -536,7 +536,7 @@ def show_analysis(title, X, y, y_pred, confidence):
     ConfusionMatrixDisplay(rates, display_labels=CLASS_NAMES).plot(
         ax=axis, values_format=".2f", cmap="Blues", colorbar=False, xticks_rotation=30,
     )
-    axis.set(title=f"{title} — matrice normalisée par vraie classe",
+    axis.set(title=f"{title} - matrice normalisée par vraie classe",
              xlabel="Classe prédite", ylabel="Vraie classe")
     plt.tight_layout()
     plt.show()
@@ -548,7 +548,7 @@ def show_analysis(title, X, y, y_pred, confidence):
     print(class_report(y, y_pred).round(3).to_string())
     for correct, label in ((True, "correctes"), (False, "erronées")):
         indices = confident_examples(y, y_pred, confidence, correct)
-        show_examples(f"{title} — prédictions {label} les plus confiantes", X, y, y_pred, confidence, indices)
+        show_examples(f"{title} - prédictions {label} les plus confiantes", X, y, y_pred, confidence, indices)
     return counts
 
 
@@ -627,7 +627,7 @@ if {"B0", "C0"} <= validation_results.keys():
 # > pourront réutiliser cette analyse pour comparer les candidats.
 
 # %% [markdown]
-# ## Phase 6 — Trois expériences à partir de C0
+# ## Phase 6 - Trois expériences à partir de C0
 #
 # Chaque run repart de poids neufs avec la seed 42, le même split stratifié,
 # `/255.0`, les sept classes et les callbacks de C0. Adam, batch 64 et 30 epochs
@@ -700,7 +700,7 @@ phase6_rows = []
 phase6_verified = set()
 for run_id, payload in phase6_payloads.items():
     if payload is None:
-        phase6_rows.append({"id": run_id, "état": "historique absent — run Colab requis"})
+        phase6_rows.append({"id": run_id, "état": "historique absent - run Colab requis"})
         continue
     metrics = payload["best_metrics"]
     checkpoint = CHECKPOINT_DIR / f"{run_id}.keras"
@@ -754,20 +754,20 @@ else:
 # | E2 | 8 / 13 | 0,557232 | 1,195606 | 683 527 |
 # | E3 | 7 / 12 | 0,559322 | 1,192440 | 683 527 |
 #
-# **E1 — capacité réduite.** La Dense 64 réduit les paramètres de 43,22 %. L'écart
+# **E1 - capacité réduite.** La Dense 64 réduit les paramètres de 43,22 %. L'écart
 # d'accuracy train/validation à l'epoch retenue descend à 5,78 points (11,88 pour
 # C0), mais l'accuracy validation perd 1,42 point. La loss ne baisse que de 0,003767.
 # Réduire la mémorisation ne suffit donc pas à améliorer la reconnaissance ; ce
 # candidat compact n'est pas le meilleur selon notre critère de validation.
 #
-# **E2 — Dropout.** À paramètres constants, la loss baisse de 0,036417 par rapport
+# **E2 - Dropout.** À paramètres constants, la loss baisse de 0,036417 par rapport
 # à C0 ; l'accuracy gagne seulement 0,07 point. Le Dropout semble utile ici pour la
 # généralisation des probabilités. Son accuracy train est mesurée avec le masquage
 # actif, ce qui limite la comparaison directe des écarts train/validation. Le
 # surapprentissage persiste : la loss validation remonte à 1,407054 à l'epoch 13,
 # après le minimum de 1,195606 à l'epoch 8. En prédiction, le masquage est désactivé.
 #
-# **E3 — pas d'optimisation plus petit.** La loss baisse de 0,039583 et l'accuracy
+# **E3 - pas d'optimisation plus petit.** La loss baisse de 0,039583 et l'accuracy
 # gagne 0,28 point par rapport à C0. À l'epoch 7, l'accuracy train est 0,623637 contre
 # 0,559322 en validation (écart 6,43 points). La dernière val_loss vaut 1,349853 :
 # diminuer le learning rate ne supprime pas le surapprentissage, d'où le checkpoint
@@ -789,7 +789,7 @@ else:
 # attend A1 : `FINAL_MODEL_ID=None` et `RUN_TEST=False` restent inchangés.
 
 # %% [markdown]
-# ## Phase 7 — data augmentation (A1)
+# ## Phase 7 - data augmentation (A1)
 #
 # **Pourquoi.** E3 surapprend après l'epoch 7. À cette epoch, son accuracy train
 # vaut 0,623637 contre 0,559322 en validation, puis sa val_loss remonte jusqu'à
@@ -927,7 +927,7 @@ if a1_payload is not None and all((CHECKPOINT_DIR / f"{run_id}.keras").is_file()
 # > fournit une estimation indépendante.
 
 # %% [markdown]
-# ### Test officiel — évaluation unique du modèle final
+# ### Test officiel - évaluation unique du modèle final
 #
 # Le test n'est évalué qu'une fois, après comparaison avec A1 en phase 7 à partir
 # de la validation. `evaluate_test_once` refuse une seconde évaluation, car
@@ -1002,3 +1002,138 @@ else:
 # > ambiguës et des biais de population. Une expression prédite n'est pas une
 # > émotion certaine. Les réglages ne doivent plus être modifiés à partir de ces
 # > résultats, sinon le test ne serait plus une évaluation indépendante.
+
+# %% [markdown]
+# ## Démonstration : détecter puis classer plusieurs visages
+#
+# **Choix du détecteur.** Les [classes COCO](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml)
+# incluent person mais pas face : une boîte de personne ne fournit pas un crop facial.
+# Nous retenons [YuNet, publié dans OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet),
+# un détecteur spécialisé pré-entraîné sur des visages, exécuté par FaceDetectorYN.
+# Il évite une dépendance YOLO/PyTorch supplémentaire. Ses poids ONNX
+# face_detection_yunet_2023mar.onnx (232 589 octets) sont sous
+# [licence MIT, Shiqi Yu](https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE).
+# Le téléchargement officiel et l'empreinte SHA256 attendue sont dans src/detect.py ;
+# la licence est conservée à côté des poids, tous deux ignorés par Git.
+# Le backend OpenCV est explicite pour accepter les tailles variables avec ce modèle
+# à dimensions ONNX fixes, notamment sous OpenCV 5. Aucune nouvelle dépendance.
+#
+# **Notions à l'oral.**
+# - Classification : une classe pour un crop déjà extrait. Détection : localisation
+#   et score pour chaque visage présent dans une image entière.
+# - Bounding box : rectangle x, y, largeur, hauteur chez YuNet ; notre API renvoie
+#   [x1, y1, x2, y2], borné à l'image originale, avec x2/y2 exclusifs pour le crop.
+# - Confidence score : score du détecteur pour retenir une proposition de visage.
+#   Il est séparé de p, la probabilité softmax A1 de l'expression sélectionnée.
+#   Aucun des deux scores n'est une certitude sur l'émotion ressentie.
+# - IoU : aire d'intersection de deux boîtes divisée par leur aire d'union.
+#   NMS : conserve les propositions les mieux scorées et supprime des doublons
+#   trop superposés. FaceDetectorYN réalise ce filtrage en interne : seuil de
+#   score 0,9, seuil NMS 0,3, au plus 5 000 candidats avant NMS.
+# - [YOLO (Redmon et al.)](https://arxiv.org/abs/1506.02640) prédit des boîtes et des
+#   classes en un passage du réseau sur l'image. C'est un principe général ;
+#   YuNet n'est pas un YOLO. Ici la détection faciale fournit aussi cinq points
+#   faciaux, que nous n'utilisons pas pour réaligner les crops.
+# - Pré-entraînement : apprendre les poids sur des données antérieures.
+#   Fine-tuning : adapter ensuite ces poids à une autre tâche ou d'autres données.
+#   Ici YuNet reste figé, et A1 est uniquement rechargé, sans fine-tuning.
+# - Précision = TP/(TP+FP), rappel = TP/(TP+FN), avec appariement des boîtes
+#   prédites aux boîtes annotées à un seuil IoU donné. AP résume la courbe
+#   précision/rappel ; mAP moyenne l'AP sur les classes (et parfois plusieurs IoU).
+#   Nous n'avons aucune boîte de référence pour ces photos : aucune mesure
+#   de précision, rappel ou mAP du détecteur n'est calculée.
+#
+# **Pipeline réel.** Image BGR uint8 → YuNet (grand côté limité à 1280) → boîtes
+# remises à l'échelle originale et bornées → crops BGR convertis en RGB →
+# predict_faces → unique preprocess_face (48×48×1, float32, /255) → batch A1 →
+# résultats structurés → annotation séparée. Zéro visage renvoie une liste vide ;
+# les boîtes invalides et les crops vides sont ignorés.
+#
+# **Images indépendantes de FER2013.** Crédit NASA, domaine public aux États-Unis :
+# [Apollo 11](https://commons.wikimedia.org/wiki/File:Apollo_11_Crew.jpg),
+# [Apollo 12](https://science.nasa.gov/resource/apollo-12-crew/),
+# [Apollo 13](https://commons.wikimedia.org/wiki/File:Apollo_13_Prime_Crew.jpg).
+# Usage pédagogique selon les [règles NASA](https://www.nasa.gov/nasa-brand-center/images-and-media/),
+# sans soutien implicite de la NASA. Les URL de téléchargement sont dans DEMO_IMAGES.
+# Images et annotations restent dans data/demo/, ignoré par Git.
+#
+# **Reproduction locale ou Colab.** Transférer src/ et le checkpoint A1.keras dans
+# la structure du dépôt ; les dépendances du projet suffisent. Cette section peut
+# être exécutée seule après définition de PROJECT_ROOT, sans charger FER2013.
+# Mettre DOWNLOAD_FACE_DEMO=True pour télécharger seulement YuNet/licence/photos
+# absents, ou utiliser python -m src.detect --download-demo depuis la racine.
+# Garder tous les flags d'entraînement et RUN_TEST=False, FINAL_MODEL_ID="A1".
+
+# %%
+import cv2
+from urllib.error import URLError
+from src.detect import (
+    DEMO_IMAGES, annotate_faces, detect_expressions, download_demo_assets, load_models,
+)
+
+DOWNLOAD_FACE_DEMO = False
+FACE_DEMO_DIR = PROJECT_ROOT / "data/demo"
+YUNET_PATH = PROJECT_ROOT / "training/checkpoints/face_detection_yunet_2023mar.onnx"
+A1_PATH = PROJECT_ROOT / "training/checkpoints/A1.keras"
+face_demo_models = None
+if DOWNLOAD_FACE_DEMO:
+    try:
+        download_demo_assets(YUNET_PATH, FACE_DEMO_DIR)
+    except (OSError, URLError) as error:
+        print(f"Téléchargement indisponible : {error}. Transférer les fichiers manuellement.")
+if YUNET_PATH.is_file() and A1_PATH.is_file():
+    face_demo_models = load_models(YUNET_PATH, A1_PATH)  # Une fois avant la boucle.
+else:
+    print("Démo indisponible : transférer A1.keras et télécharger YuNet "
+          "(DOWNLOAD_FACE_DEMO=True). Aucun entraînement ni test officiel lancé.")
+
+# %%
+if face_demo_models is not None:
+    face_detector, expression_model = face_demo_models
+    face_output_dir = FACE_DEMO_DIR / "annotated"
+    face_output_dir.mkdir(parents=True, exist_ok=True)
+    for image_name in DEMO_IMAGES:
+        image_path = FACE_DEMO_DIR / image_name
+        frame_bgr = cv2.imread(str(image_path)) if image_path.is_file() else None
+        if frame_bgr is None:
+            print(f"Image absente ou illisible : {image_path}. DOWNLOAD_FACE_DEMO=True.")
+            continue
+        assert frame_bgr.ndim == 3 and frame_bgr.shape[2] == 3
+        face_results = detect_expressions(frame_bgr, face_detector, expression_model)
+        annotated_bgr = annotate_faces(frame_bgr, face_results)
+        assert annotated_bgr.shape == frame_bgr.shape
+        assert cv2.imwrite(str(face_output_dir / f"{image_path.stem}_annotated.png"), annotated_bgr)
+        print(f"{image_name} : {len(face_results)} visage(s). "
+              "p = softmax de l'expression ; face score = score YuNet.")
+        if face_results:
+            display(pd.DataFrame(face_results))
+        else:
+            print("Aucun visage retenu au seuil actuel.")
+        plt.figure(figsize=(12, 8))
+        plt.imshow(cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB))  # Matplotlib attend RGB.
+        plt.title(f"{image_name} - expression prédite, sans certitude émotionnelle")
+        plt.axis("off")
+        plt.show()
+
+# %% [markdown]
+# **Observations locales du 7 octobre 2026.** Pipeline réellement exécuté avec
+# OpenCV 5.0.0, TensorFlow 2.21.0 et A1.keras ; trois visages retenus sur chacune
+# des trois photos. Les boîtes inspectées entourent les visages visibles.
+# Apollo 11 : deux happy (p≈0,95/0,93), un neutral (p≈0,70).
+# Apollo 12 : trois happy (p≈0,996–0,999). Apollo 13 : trois happy
+# (p≈0,85–0,998). Scores YuNet observés : environ 0,93–0,95.
+# Les sourires visibles rendent ces sorties plausibles, sans labels d'expression
+# de référence. Les textes sont adaptés à la résolution pour rester lisibles.
+# Ces portraits posés, essentiellement frontaux, de trois hommes adultes chacun
+# ne vérifient ni les petits visages, ni les occlusions, ni la diversité de population.
+# Aucun score de qualité du détecteur ne peut en être déduit.
+# Les crops n'ont pas l'alignement de FER2013 ; pose, lumière et changement de domaine
+# peuvent fausser A1, même quand son softmax est élevé. Pas de calibration des scores.
+# Cette extension a été validée localement ; aucune relance Colab n'a été nécessaire.
+#
+# **Relais vidéo.** Charger detector, classifier = load_models() avant la boucle ;
+# appeler detect_expressions(frame_bgr, detector, classifier), puis
+# annotate_faces(frame_bgr, results). Les dicts contiennent box_xyxy, detector_score,
+# class_id, expression, expression_probability, dans l'ordre des détections.
+# Aucun identifiant de suivi temporel : le numéro dessiné dépend de chaque frame.
+# Réutiliser ces fonctions sans recharger les modèles et sans réentraîner A1.
