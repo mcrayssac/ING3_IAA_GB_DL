@@ -45,11 +45,11 @@ Phases 1 à 6 : socle obligatoire. Enrichissement visé : phase 7 (data augmenta
 - [x] Explications markdown : filtres, convolution, feature maps, kernel, stride, padding, ReLU, pooling, Flatten, Dense, sortie ; évolution des dimensions couche par couche ; justification de l'architecture.
 
 ## Phase 4 - Entraînement (3 pts avec la phase 5) - resp. : Paul
-- [ ] `src/train.py` : compile, fit, callbacks (`ModelCheckpoint`, `EarlyStopping`), historique sauvegardé dans `training/logs/`.
-- [ ] Run Colab GPU du CNN de départ (id `C0`), courbes loss et accuracy train/val.
-- [ ] Comparaison B0 / C0 dans le notebook : val_acc, val_loss, nombre de paramètres.
-- [ ] Notebook : avec les flags `RUN_*` à `False`, recharger les historiques sauvegardés (`training/logs/*_history.json`) pour afficher les courbes B0 et C0 sans réentraîner.
-- [ ] Explications markdown : choix loss/optimiseur/batch/epochs/métriques ; lecture des courbes, sur/sous-apprentissage.
+- [x] `src/train.py` : compile, fit, callbacks (`ModelCheckpoint`, `EarlyStopping`), historique sauvegardé dans `training/logs/`. Raccordé à `build_cnn` ; vrai smoke CNN 256/64/1 temporaire et relecture des poids vérifiés.
+- [x] Run Colab GPU du CNN de départ (id `C0`), courbes loss et accuracy train/val. Tesla T4, split complet 24 402/4 307, 12 epochs ; checkpoint de l'epoch 7 rechargé et validation concordante dans Colab et en local.
+- [x] Comparaison B0 / C0 dans le notebook : val_acc, val_loss, nombre de paramètres. Tableau réel vérifié ; B0 dernière epoch 5, C0 meilleure epoch 7 sur val_loss ; métriques de la même epoch et B0 préservé.
+- [x] Notebook : avec les flags `RUN_*` à `False`, recharger les historiques sauvegardés (`training/logs/*_history.json`) pour afficher les courbes B0 et C0 sans réentraîner. Affichage réel vérifié dans Colab avec fit interdit ; historique absent géré sans entraînement.
+- [x] Explications markdown : choix loss/optimiseur/batch/epochs/métriques ; lecture des courbes, sur/sous-apprentissage. Analyse fondée sur le vrai C0 : surapprentissage après l'epoch 7 et limites de la comparaison B0/C0.
 
 ## Phase 5 - Évaluation (3 pts avec la phase 4) - resp. : Maxime
 - [ ] `src/evaluate.py` : charger un modèle sauvegardé, prédire, matrice de confusion, precision/recall/F1 par classe ; images brutes passées par `preprocess_face()`.

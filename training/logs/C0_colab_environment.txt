@@ -1,0 +1,39 @@
+{
+  "python": "3.13.15 (main, Aug  6 2026, 11:06:22) [GCC 13.3.0]",
+  "gpu_devices": [
+    "PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')"
+  ],
+  "versions": {
+    "tensorflow": "2.21.0",
+    "keras": "3.13.2",
+    "numpy": "2.1.3",
+    "scikit-learn": "1.6.1"
+  },
+  "train_size": 24402,
+  "val_size": 4307,
+  "test_used": false,
+  "preserved_artifacts_sha256": {
+    "training/logs/B0_history.json": "76865c527da885344468bc1d9f964d794631587c2ae883bb0219b925c4a1360a",
+    "training/checkpoints/B0.keras": "54831cee61721babb3165b1a9d639a4c90df994310c416dcd7412ec802bbcd4d"
+  },
+  "preserved_rows": [
+    {
+      "id": "B0",
+      "modification": "Baseline MLP Flatten -> Dense ReLU -> Dense softmax",
+      "val_acc": "0.36080798506736755",
+      "val_loss": "1.6603385210037231",
+      "params": "295943",
+      "observation": "Derni\u00e8re epoch 5/5 ; accuracy et loss de la m\u00eame epoch ; poids finaux, aucune restauration des meilleurs poids ; {\"seed\": 42, \"epochs\": 5, \"batch_size\": 64, \"learning_rate\": 0.001, \"hidden_units\": 128, \"train_size\": 24402, \"val_size\": 4307, \"optimizer\": \"Adam\", \"loss\": \"sparse_categorical_crossentropy\"}"
+    }
+  ],
+  "verification": {
+    "epochs_ran": 12,
+    "best_epoch": 7,
+    "validation_reloaded": {
+      "accuracy": 0.5565358996391296,
+      "loss": 1.232022762298584
+    }
+  },
+  "preserved_after_run": true,
+  "checkpoint_weights_equal_returned": true
+}

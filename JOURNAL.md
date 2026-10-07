@@ -49,3 +49,12 @@ Commande utile : .venv/bin/python -m pytest -q && git diff --check ; reproductio
 Fait : phase 3  - `build_cnn()` (3 blocs Conv2D + ReLU -> MaxPooling 32/64/128, Dense 128, sortie softmax 7, 683 527 paramètres) et test dédié ; notebook : summary couche par couche, notions CNN, calcul des paramètres, justification et hypothèse sur C0. Compléments phase 1 : total 35 887 images, effectifs par classe train/test, fichiers JPEG gris 48 x 48. 24 tests réussis, notebook exécuté sans erreur avec RUN_B0=False.
 Reste : phase 4  - entraîner C0 sur Colab GPU, courbes et comparaison avec B0 ; performances de C0 encore inconnues.
 Commande utile : .venv/bin/python -m pytest -q && .venv/bin/jupytext --to ipynb notebooks/projet.py
+Fait : phase 4 indépendante sur phase-4-entrainement, fabrique/callbacks/meilleure epoch ; 15 tests pertinents, smoke MLP 256/64/1 temporaire et relecture conformes, B0/CSV inchangés, test officiel non utilisé.
+Reste : raccorder build_cnn après le push de Maxime, exécuter C0 complet sur Colab GPU et rédiger les explications notebook ; tâche technique [~], aucune ligne C0 réelle, aucun commit/push.
+Commande utile : .venv/bin/python -m pytest -q tests/test_shapes.py -k 'cnn or mlp or experiment or invalid_csv' ; git diff --check.
+Fait : main et phase-4-entrainement à jour avec origin/main (231d373) ; préparation locale restaurée, conflits TODO/JOURNAL résolus ; 26 tests réussis et diff propre ; ancien SPEC local sauvegardé dans /private/tmp/fer2013-phase4-sync-6_1ko0bw/.
+Reste : smoke du vrai CNN, intégration notebook, C0 Colab GPU, comparaison B0/C0 et rechargement des historiques ; aucune évaluation test ni commit/push.
+Commande utile : .venv/bin/python -m pytest -q ; git diff --check.
+Fait : phase 4 terminée ; smoke CNN 256/64/1 temporaire, C0 Colab Tesla T4 complet 24 402/4 307 (12 epochs, meilleure 7), JSON/CSV/checkpoint/trace importés et validation rechargée concordante ; courbes/tableau flags False, analyse réelle, 26 tests et B0 préservé.
+Reste : aucune tâche de phase 4 ; aucune évaluation du test officiel, autre phase, dépendance nouvelle, intégration Git, commit ou push ; checkpoint C0 non versionné.
+Commande utile : .venv/bin/python -m src.train --model cnn ; .venv/bin/python -m src.train --check-c0 ; .venv/bin/python -m pytest -q ; git diff --check ; preuves/reproduction : docs/B0_COLAB.md.
