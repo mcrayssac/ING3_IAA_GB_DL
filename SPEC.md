@@ -28,6 +28,7 @@ Chaque expérience change un seul axe par rapport à sa référence. Le modèle 
 - Historique et configuration : `training/logs/<id>_history.json`.
 - Résumé : `training/logs/experiments.csv`, schéma `id,modification,val_acc,val_loss,params,observation`, une ligne par id.
 - Poids : `training/checkpoints/<id>.keras`, non versionnés. Les métriques du CSV sont celles de l'epoch des poids sauvegardés.
+- Test officiel : `training/logs/test_evaluation.json`, écrit une seule fois par `evaluate_test_once` (création exclusive) et versionné ; le notebook le relit ensuite.
 
 ## Exécution
 - Runs complets sur Google Colab avec GPU ; en local, seulement le smoke test (`python -m src.train`) et les tests (`python -m pytest -q`).

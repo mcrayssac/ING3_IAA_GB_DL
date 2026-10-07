@@ -9,6 +9,7 @@ from PIL import Image
 
 from src.data import CHANNELS, CLASS_NAMES, IMAGE_SIZE, K, SEED, load_dataset, preprocess_face
 from src.models import build_cnn, build_mlp
+from src import evaluate as evaluation
 from src import train as mlp_training
 
 
@@ -311,3 +312,29 @@ def test_cnn_rejects_wrong_class_count(tmp_path: Path) -> None:
             log_dir=tmp_path / "logs", checkpoint_dir=tmp_path / "checkpoints", smoke=True,
         )
     assert not list(tmp_path.iterdir())
+
+
+def test_evaluation_and_single_test_guard(tmp_path: Path) -> None:
+    """Évalue un modèle sauvegardé et refuse une seconde évaluation du test."""
+    model = build_mlp()
+    model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+    model.save(tmp_path / "M.keras")
+    X = np.random.default_rng(SEED).random((14, 48, 48, 1), dtype=np.float32)
+    y = np.arange(14, dtype=np.int64) % K
+
+    result = evaluation.evaluate(model, X, y)
+    assert result["y_pred"].shape == result["confidence"].shape == (14,)
+    assert np.isclose(result["accuracy"], np.mean(result["y_pred"] == y))
+    assert list(evaluation.class_report(y, result["y_pred"]).index[:K]) == list(CLASS_NAMES)
+
+    y_pred, confidence = np.array([0, 1, 1, 2]), np.array([0.5, 0.9, 0.7, 0.8])
+    assert evaluation.confident_examples(np.array([0, 1, 2, 2]), y_pred, confidence, True).tolist() == [1, 3, 0]
+    assert evaluation.confident_examples(np.array([0, 1, 2, 2]), y_pred, confidence, False).tolist() == [2]
+
+    raw = [np.full((40, 40), 128, dtype=np.uint8), np.zeros((60, 60, 3), dtype=np.uint8)]
+    assert evaluation.predict_faces(model, raw).shape == (2, K)
+
+    first = evaluation.evaluate_test_once("M", X, y, log_dir=tmp_path, checkpoint_dir=tmp_path)
+    assert evaluation.load_test_evaluation(tmp_path) == first
+    with pytest.raises(FileExistsError):
+        evaluation.evaluate_test_once("M", X, y, log_dir=tmp_path, checkpoint_dir=tmp_path)

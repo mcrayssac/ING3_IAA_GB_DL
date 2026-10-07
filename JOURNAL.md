@@ -58,3 +58,7 @@ Commande utile : .venv/bin/python -m pytest -q ; git diff --check.
 Fait : phase 4 terminée ; smoke CNN 256/64/1 temporaire, C0 Colab Tesla T4 complet 24 402/4 307 (12 epochs, meilleure 7), JSON/CSV/checkpoint/trace importés et validation rechargée concordante ; courbes/tableau flags False, analyse réelle, 26 tests et B0 préservé.
 Reste : aucune tâche de phase 4 ; aucune évaluation du test officiel, autre phase, dépendance nouvelle, intégration Git, commit ou push ; checkpoint C0 non versionné.
 Commande utile : .venv/bin/python -m src.train --model cnn ; .venv/bin/python -m src.train --check-c0 ; .venv/bin/python -m pytest -q ; git diff --check ; preuves/reproduction : docs/B0_COLAB.md.
+
+Fait : phase 5  - `src/evaluate.py` (évaluation, rapport par classe, exemples confiants, `predict_faces`, test unique par création exclusive de `test_evaluation.json`) et test dédié ; C0.keras extrait et contrôlé (`--check-c0`). Notebook : matrice de confusion, paires confondues, rapport par classe, exemples, F1 B0/C0 et analyse rédigée sur la validation (C0 : accuracy 0,556536, F1 macro 0,512 contre 0,244 pour B0). 27 tests réussis, notebook exécuté sans erreur, test officiel non évalué.
+Reste : évaluation unique du test sur le modèle final après les phases 6 et 7 (`RUN_TEST=True`, `FINAL_MODEL_ID`).
+Commande utile : .venv/bin/python -m pytest -q && .venv/bin/python -m src.train --check-c0
