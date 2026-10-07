@@ -6,6 +6,53 @@
 # données présenté par Goodfellow et al. (2013). La fiche Kaggle indique la licence
 # « Database: Open Database, Contents: Database Contents » ; son usage respecte aussi
 # les [conditions d'utilisation Kaggle](https://www.kaggle.com/terms).
+#
+# **Sommaire.** Les sections suivent les parties du sujet.
+#
+# | Section | Partie du sujet | Code utilisé | Flags (False par défaut) |
+# |---|---|---|---|
+# | Phase 1 - données | 1 | `src/data.py` | - |
+# | Phase 2 - baseline MLP | 2 | `src/models.py`, `src/train.py` | `RUN_B0` |
+# | Phase 3 - CNN | 3 | `src/models.py` | - |
+# | Phase 4 - entraînement C0 | 4 | `src/train.py` | `RUN_C0` |
+# | Phase 5 - évaluation et erreurs | 5 | `src/evaluate.py` | - |
+# | Phase 6 - expériences E1 à E3 | 6 | `src/train.py` | `RUN_E1`, `RUN_E2`, `RUN_E3` |
+# | Phase 7 - augmentation A1 | 7 | `src/train.py` | `RUN_A1` |
+# | Test officiel | 5 et 6 | `src/evaluate.py` | `RUN_TEST` |
+# | Phase 8 - pipeline final multi-visages | 8 et démonstration | `src/detect.py` | `DOWNLOAD_FACE_DEMO`, `RUN_CUSTOM_IMAGE` |
+#
+# Avec tous les flags à False, le notebook n'entraîne rien : il relit les
+# résultats sauvegardés dans `training/logs/` et les checkpoints de
+# `training/checkpoints/`. La première cellule détecte seule l'environnement.
+# Sur un Mac, elle utilise le dépôt local. Sur Colab, elle demande les deux
+# archives produites par `scripts/colab_bundle.sh` (`projet-code.zip` et
+# `fer2013.zip`), puis les extrait.
+
+# %%
+# Setup automatique : Colab (upload des deux archives) ou exécution locale (Mac).
+import os
+import sys
+from pathlib import Path
+
+IN_COLAB = "google.colab" in sys.modules
+if IN_COLAB:
+    COLAB_ROOT = Path("/content/fer2013-project")
+    expected = {"projet-code.zip": COLAB_ROOT / "src", "fer2013.zip": COLAB_ROOT / "data/train"}
+    missing = [name for name, folder in expected.items() if not folder.is_dir()]
+    if missing:
+        from io import BytesIO
+        from zipfile import ZipFile
+        from google.colab import files
+
+        print("Sélectionner :", ", ".join(missing), "(produits par scripts/colab_bundle.sh).")
+        for name, content in files.upload().items():
+            ZipFile(BytesIO(content)).extractall(COLAB_ROOT)
+    os.chdir(COLAB_ROOT)
+
+import tensorflow as tf
+
+print(f"Environnement : {'Colab' if IN_COLAB else 'local'} ; "
+      f"GPU TensorFlow : {tf.config.list_physical_devices('GPU') or 'aucun, calcul sur CPU'}")
 
 # %%
 from pathlib import Path
@@ -104,6 +151,13 @@ plt.show()
 # neurone. Ses **poids** règlent l'influence des entrées et ses **biais** décalent
 # les sommes calculées : `z = xW + b`.
 #
+# **Binaire ou multiclasse.** En classification binaire, un seul neurone de sortie
+# avec une **sigmoïde** `σ(z) = 1 / (1 + e^(-z))` donne la probabilité de la
+# classe 1. Ici, il y a sept expressions : la dernière couche compte donc un
+# neurone par classe, `Dense(7, activation="softmax")`, et la **softmax**
+# `softmax(z_i) = e^(z_i) / Σ_j e^(z_j)` rend les sept sorties positives et de
+# somme 1. La classe prédite est celle de plus forte probabilité.
+#
 # La **propagation avant** calcule ces sommes puis leurs activations.
 # Les 128 neurones cachés utilisent **ReLU**, `max(0, z)`, pour introduire une
 # non-linéarité. La sortie **softmax** transforme les sept scores en valeurs
@@ -178,7 +232,7 @@ def plot_history(run_id, history, best_epoch=None):
 # fonctionnement technique ; ses métriques ne sont pas des résultats de baseline.
 # Les images du chargeur sont déjà normalisées et ne sont pas divisées à nouveau.
 #
-# **B0 sur Colab.** Suivre le [guide B0](../docs/B0_COLAB.md)
+# **B0 sur Colab.** Suivre le [guide B0](../docs/COLAB.md)
 # (la version locale non poussée doit être uploadée). Garder les paquets natifs de Colab, placer FER2013 dans
 # `data/`, activer le GPU, puis exécuter les cellules de phase 1 pour obtenir
 # le split complet. Passer `RUN_B0` à `True` ci-dessous lance explicitement
@@ -363,7 +417,7 @@ print(f"CNN C0 : {cnn.count_params():,} paramètres, contre {model.count_params(
 # elle décrit ces deux protocoles, sans isoler le seul effet de l'architecture.
 #
 # **Exécution.** Guide et cellules exactes :
-# [section C0 du guide Colab](../docs/B0_COLAB.md#c0--phase-4-sur-colab-gpu).
+# [section C0 du guide Colab](../docs/COLAB.md#c0--phase-4-sur-colab-gpu).
 # `RUN_C0=False` recharge l'historique sans entraîner. S'il manque, aucun résultat
 # C0 n'est déduit de l'hypothèse de phase 3. Smoke local temporaire :
 # `python -m src.train --model cnn`. Contrôle des vrais artefacts :
@@ -1004,7 +1058,14 @@ else:
 # > résultats, sinon le test ne serait plus une évaluation indépendante.
 
 # %% [markdown]
-# ## Démonstration : détecter puis classer plusieurs visages
+# ## Phase 8 - pipeline final : détection multi-visages et expressions
+#
+# Cette section assemble le système complet visé par le sujet (Figure 4 du
+# sujet) : image → détection des visages → boîtes → extraction de chaque visage →
+# `preprocess_face` → modèle final (`FINAL_MODEL_ID`) → softmax → expression et
+# probabilité. Les phases 1 à 7 ont construit et choisi le classifieur ; ici, il
+# est appliqué à des photos entières qui contiennent plusieurs personnes. Cette
+# section sert aussi de **démonstration du modèle final** (livrable 3).
 #
 # **Choix du détecteur.** Les [classes COCO](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml)
 # incluent person mais pas face : une boîte de personne ne fournit pas un crop facial.
@@ -1057,12 +1118,13 @@ else:
 # sans soutien implicite de la NASA. Les URL de téléchargement sont dans DEMO_IMAGES.
 # Images et annotations restent dans data/demo/, ignoré par Git.
 #
-# **Reproduction locale ou Colab.** Transférer src/ et le checkpoint A1.keras dans
-# la structure du dépôt ; les dépendances du projet suffisent. Cette section peut
-# être exécutée seule après définition de PROJECT_ROOT, sans charger FER2013.
-# Mettre DOWNLOAD_FACE_DEMO=True pour télécharger seulement YuNet/licence/photos
-# absents, ou utiliser python -m src.detect --download-demo depuis la racine.
-# Garder tous les flags d'entraînement et RUN_TEST=False, FINAL_MODEL_ID="A1".
+# **Reproduction locale ou Colab.** `scripts/colab_bundle.sh` inclut `src/`, les
+# checkpoints, YuNet et les photos de démo s'ils sont présents ; les dépendances du
+# projet suffisent. Cette section peut être exécutée seule, sans charger FER2013,
+# après définition de `PROJECT_ROOT` et `FINAL_MODEL_ID`. Mettre
+# DOWNLOAD_FACE_DEMO=True pour télécharger seulement YuNet/licence/photos absents,
+# ou utiliser `python -m src.detect --download-demo` depuis la racine. Garder tous
+# les flags d'entraînement et `RUN_TEST=False`.
 
 # %%
 import cv2
@@ -1074,22 +1136,45 @@ from src.detect import (
 DOWNLOAD_FACE_DEMO = False
 FACE_DEMO_DIR = PROJECT_ROOT / "data/demo"
 YUNET_PATH = PROJECT_ROOT / "training/checkpoints/face_detection_yunet_2023mar.onnx"
-A1_PATH = PROJECT_ROOT / "training/checkpoints/A1.keras"
+FINAL_MODEL_PATH = PROJECT_ROOT / f"training/checkpoints/{FINAL_MODEL_ID}.keras"
 face_demo_models = None
 if DOWNLOAD_FACE_DEMO:
     try:
         download_demo_assets(YUNET_PATH, FACE_DEMO_DIR)
     except (OSError, URLError) as error:
         print(f"Téléchargement indisponible : {error}. Transférer les fichiers manuellement.")
-if YUNET_PATH.is_file() and A1_PATH.is_file():
-    face_demo_models = load_models(YUNET_PATH, A1_PATH)  # Une fois avant la boucle.
+if YUNET_PATH.is_file() and FINAL_MODEL_PATH.is_file():
+    face_demo_models = load_models(YUNET_PATH, FINAL_MODEL_PATH)  # Une fois avant la boucle.
+    print(f"Pipeline final : YuNet + {FINAL_MODEL_ID} ({FINAL_MODEL_PATH.name}).")
 else:
-    print("Démo indisponible : transférer A1.keras et télécharger YuNet "
+    print(f"Démo indisponible : transférer {FINAL_MODEL_PATH.name} et télécharger YuNet "
           "(DOWNLOAD_FACE_DEMO=True). Aucun entraînement ni test officiel lancé.")
+
+
+def show_face_pipeline(frame_bgr, title, output_path=None):
+    """Détecte les visages, classe leurs expressions et affiche l'image annotée."""
+    assert frame_bgr.ndim == 3 and frame_bgr.shape[2] == 3
+    face_detector, expression_model = face_demo_models
+    face_results = detect_expressions(frame_bgr, face_detector, expression_model)
+    annotated_bgr = annotate_faces(frame_bgr, face_results)
+    assert annotated_bgr.shape == frame_bgr.shape
+    if output_path is not None:
+        assert cv2.imwrite(str(output_path), annotated_bgr)
+    print(f"{title} : {len(face_results)} visage(s). "
+          "p = softmax de l'expression ; face score = score YuNet.")
+    if face_results:
+        display(pd.DataFrame(face_results))
+    else:
+        print("Aucun visage retenu au seuil actuel.")
+    plt.figure(figsize=(12, 8))
+    plt.imshow(cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB))  # Matplotlib attend RGB.
+    plt.title(f"{title} - expression prédite, sans certitude émotionnelle")
+    plt.axis("off")
+    plt.show()
+    return face_results
 
 # %%
 if face_demo_models is not None:
-    face_detector, expression_model = face_demo_models
     face_output_dir = FACE_DEMO_DIR / "annotated"
     face_output_dir.mkdir(parents=True, exist_ok=True)
     for image_name in DEMO_IMAGES:
@@ -1098,22 +1183,7 @@ if face_demo_models is not None:
         if frame_bgr is None:
             print(f"Image absente ou illisible : {image_path}. DOWNLOAD_FACE_DEMO=True.")
             continue
-        assert frame_bgr.ndim == 3 and frame_bgr.shape[2] == 3
-        face_results = detect_expressions(frame_bgr, face_detector, expression_model)
-        annotated_bgr = annotate_faces(frame_bgr, face_results)
-        assert annotated_bgr.shape == frame_bgr.shape
-        assert cv2.imwrite(str(face_output_dir / f"{image_path.stem}_annotated.png"), annotated_bgr)
-        print(f"{image_name} : {len(face_results)} visage(s). "
-              "p = softmax de l'expression ; face score = score YuNet.")
-        if face_results:
-            display(pd.DataFrame(face_results))
-        else:
-            print("Aucun visage retenu au seuil actuel.")
-        plt.figure(figsize=(12, 8))
-        plt.imshow(cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB))  # Matplotlib attend RGB.
-        plt.title(f"{image_name} - expression prédite, sans certitude émotionnelle")
-        plt.axis("off")
-        plt.show()
+        show_face_pipeline(frame_bgr, image_name, face_output_dir / f"{image_path.stem}_annotated.png")
 
 # %% [markdown]
 # **Observations locales du 7 octobre 2026.** Pipeline réellement exécuté avec
@@ -1137,3 +1207,26 @@ if face_demo_models is not None:
 # class_id, expression, expression_probability, dans l'ordre des détections.
 # Aucun identifiant de suivi temporel : le numéro dessiné dépend de chaque frame.
 # Réutiliser ces fonctions sans recharger les modèles et sans réentraîner A1.
+
+# %% [markdown]
+# **Démonstration libre.** Pour la soutenance, `RUN_CUSTOM_IMAGE=True` applique le
+# même pipeline à une photo choisie : sur Colab, une fenêtre d'upload s'ouvre ; sur
+# Mac, renseigner `CUSTOM_IMAGE_PATH`. Le flag reste à False pour qu'« Exécuter
+# tout » ne s'arrête pas sur une demande de fichier.
+
+# %%
+RUN_CUSTOM_IMAGE = False
+CUSTOM_IMAGE_PATH = None  # Mac : par exemple PROJECT_ROOT / "data/demo/ma_photo.jpg".
+if RUN_CUSTOM_IMAGE and face_demo_models is not None:
+    if IN_COLAB:
+        from google.colab import files
+
+        custom_images = {name: cv2.imdecode(np.frombuffer(content, np.uint8), cv2.IMREAD_COLOR)
+                         for name, content in files.upload().items()}
+    else:
+        custom_images = {Path(CUSTOM_IMAGE_PATH).name: cv2.imread(str(CUSTOM_IMAGE_PATH))}
+    for name, frame_bgr in custom_images.items():
+        if frame_bgr is None:
+            print(f"{name} : image illisible.")
+            continue
+        show_face_pipeline(frame_bgr, name)

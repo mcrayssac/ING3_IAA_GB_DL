@@ -44,7 +44,7 @@ Reste : réinitialiser la session Colab altérée puis renvoyer les ZIP ; compat
 Commande utile : retirer `%pip install -q -r /content/fer2013-project/requirements.txt` de la cellule Colab ; git diff --check.
 Fait : phase 2 validée, B0 JSON/CSV/modèle conformes et validation rechargée concordante ; 23 tests, notebook sans B0 et courbes vérifiés ; guide déplacé, CSV renforcé, artefacts préservés.
 Reste : phase 9 Colab globale ; GPU confirmé par assertion selon utilisateur, sortie matérielle non conservée ; commit/push/MR à réaliser par utilisateur.
-Commande utile : .venv/bin/python -m pytest -q && git diff --check ; reproduction et preuves : docs/B0_COLAB.md.
+Commande utile : .venv/bin/python -m pytest -q && git diff --check ; reproduction et preuves : docs/COLAB.md.
 
 Fait : phase 3  - `build_cnn()` (3 blocs Conv2D + ReLU -> MaxPooling 32/64/128, Dense 128, sortie softmax 7, 683 527 paramètres) et test dédié ; notebook : summary couche par couche, notions CNN, calcul des paramètres, justification et hypothèse sur C0. Compléments phase 1 : total 35 887 images, effectifs par classe train/test, fichiers JPEG gris 48 x 48. 24 tests réussis, notebook exécuté sans erreur avec RUN_B0=False.
 Reste : phase 4  - entraîner C0 sur Colab GPU, courbes et comparaison avec B0 ; performances de C0 encore inconnues.
@@ -57,7 +57,7 @@ Reste : smoke du vrai CNN, intégration notebook, C0 Colab GPU, comparaison B0/C
 Commande utile : .venv/bin/python -m pytest -q ; git diff --check.
 Fait : phase 4 terminée ; smoke CNN 256/64/1 temporaire, C0 Colab Tesla T4 complet 24 402/4 307 (12 epochs, meilleure 7), JSON/CSV/checkpoint/trace importés et validation rechargée concordante ; courbes/tableau flags False, analyse réelle, 26 tests et B0 préservé.
 Reste : aucune tâche de phase 4 ; aucune évaluation du test officiel, autre phase, dépendance nouvelle, intégration Git, commit ou push ; checkpoint C0 non versionné.
-Commande utile : .venv/bin/python -m src.train --model cnn ; .venv/bin/python -m src.train --check-c0 ; .venv/bin/python -m pytest -q ; git diff --check ; preuves/reproduction : docs/B0_COLAB.md.
+Commande utile : .venv/bin/python -m src.train --model cnn ; .venv/bin/python -m src.train --check-c0 ; .venv/bin/python -m pytest -q ; git diff --check ; preuves/reproduction : docs/COLAB.md.
 
 Fait : phase 5  - `src/evaluate.py` (évaluation, rapport par classe, exemples confiants, `predict_faces`, test unique par création exclusive de `test_evaluation.json`) et test dédié ; C0.keras extrait et contrôlé (`--check-c0`). Notebook : matrice de confusion, paires confondues, rapport par classe, exemples, F1 B0/C0 et analyse rédigée sur la validation (C0 : accuracy 0,556536, F1 macro 0,512 contre 0,244 pour B0). 27 tests réussis, notebook exécuté sans erreur, test officiel non évalué.
 Reste : évaluation unique du test sur le modèle final après les phases 6 et 7 (`RUN_TEST=True`, `FINAL_MODEL_ID`).
@@ -76,3 +76,7 @@ Commande utile : .venv/bin/python -m pytest -q ; aucun nouveau test officiel (te
 Fait : phase 8 sur phase-8-detection-visages - YuNet officiel MIT/OpenCV + A1, batch/crops RGB, API frame et annotation séparées ; 3 photos NASA (3 visages chacune) inspectées, téléchargement depuis zéro, 40 tests et cellules de démo vérifiés en local, Jupytext généré ; README épuré, aucune relance Colab ni réévaluation du test.
 Reste : Maxime, phase 9 - charger load_models() une fois, puis detect_expressions(frame_bgr, detector, classifier) et annotate_faces(frame_bgr, results) ; pas de suivi temporel fourni ; garder A1, tous les RUN_* à False ; CSV préexistant et AGENTS.md non suivi préservés, aucun commit/push.
 Commande utile : .venv/bin/python -m src.detect --download-demo ; .venv/bin/python -m pytest -q ; git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check (CRLF préexistants du CSV conservés).
+
+Fait : conformité au sujet et pipeline final  - section « Conformité au sujet » dans TODO (une case par consigne du PDF, avec sa section) ; explication sigmoïde/softmax ajoutée en phase 2. Notebook : sommaire, cellule de setup automatique Mac/Colab (upload de 2 archives, dépôt privé), phase 8 renommée « pipeline final », classifieur suivi par `FINAL_MODEL_ID`, photo libre (`RUN_CUSTOM_IMAGE`). `scripts/colab_bundle.sh` produit `dist/` ; `docs/B0_COLAB.md` → `docs/COLAB.md` ; carte du projet dans le README ; ZIP d'artefacts déplacés dans `training/archives/`. 40 tests, notebook exécuté sans erreur, setup Colab simulé, `test_evaluation.json` inchangé.
+Reste : valider « Exécuter tout » sur un runtime Colab neuf ; démo à rejouer après téléchargement de YuNet et des photos ; approfondissement CNN ; slides.
+Commande utile : scripts/colab_bundle.sh ; .venv/bin/python -m pytest -q
