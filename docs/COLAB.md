@@ -1,8 +1,19 @@
-# B0 : reproduction sur Google Colab
+# Exécution sur Google Colab
+
+## Procédure actuelle : un seul notebook pour Mac et Colab
+
+1. Sur le Mac, depuis la racine : `scripts/colab_bundle.sh`. Le script crée `dist/projet.ipynb`, `dist/projet-code.zip` (code, résultats, checkpoints, démo) et `dist/fer2013.zip`.
+2. Dans Colab : Fichier → Importer un notebook → `dist/projet.ipynb`, puis choisir un runtime GPU si un entraînement est prévu.
+3. Exécuter tout. La première cellule détecte Colab et demande les deux archives, puis les extrait dans `/content/fer2013-project`. Sur le Mac, la même cellule utilise le dépôt local sans rien demander.
+4. Tous les flags `RUN_*` sont à False : le notebook relit les résultats et les checkpoints. Pour un entraînement, activer un seul flag puis récupérer ses artefacts (sections ci-dessous).
+
+Les sections suivantes conservent les procédures et preuves historiques de chaque run officiel.
+
+## B0 : baseline MLP
 
 B0 est la baseline MLP : `Flatten → Dense(128, relu) → Dense(7, softmax)`, entrée `(48, 48, 1)`, 295943 paramètres. Conserver seed 42 (Python, NumPy, TensorFlow), Adam à `1e-3`, batch 64 et 5 epochs sur le train/validation complet. Aucun callback ni retour aux meilleurs poids : les résultats et le modèle sauvegardés concernent la dernière epoch. Le test officiel ne sert ni à l'entraînement ni aux réglages.
 
-## 1. Préparer le transfert sur le Mac
+### 1. Préparer le transfert sur le Mac
 
 Depuis la racine du dépôt, avec FER2013 dans `data/train` et `data/test` et l'environnement local existant :
 
@@ -19,7 +30,7 @@ echo "$transfer_dir"
 
 Les ZIP contiennent le code local, même non poussé, et les images. Le CSV existant est inclus pour préserver les autres expériences. Les archives sont placées hors du dépôt ; le `.ipynb` généré reste ignoré et s'édite uniquement via `notebooks/projet.py`.
 
-## 2. Préparer Colab
+### 2. Préparer Colab
 
 Importer `notebooks/projet.ipynb` dans [Colab](https://colab.research.google.com/), puis choisir un runtime Python 3 avec GPU. Ajouter ces cellules **avant les cellules du projet** et les exécuter dans l'ordre.
 
@@ -64,7 +75,7 @@ trace.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 Ne pas entraîner si un import ou l'assertion GPU échoue : conserver le message exact avant de modifier l'installation. La trace indique les versions et le GPU détecté par TensorFlow ; elle ne mesure pas l'utilisation du GPU pendant chaque opération.
 
-## 3. Exécuter B0
+### 3. Exécuter B0
 
 Exécuter les cellules de phase 1 : le chargeur produit 24 402 images train, 4 307 validation et 7 178 test. Seul le train officiel de 28 709 images est partagé, de façon stratifiée à 15 % avec seed 42. Les pixels sont déjà normalisés ; ne pas les diviser à nouveau.
 
@@ -72,7 +83,7 @@ Dans la phase 2, passer `RUN_B0 = False` à `RUN_B0 = True`, puis exécuter cons
 
 Une réexécution remplace l'historique, le modèle et la seule ligne B0 du CSV, en conservant les autres expériences. Un CSV au schéma incorrect, incomplet, aux métriques invalides ou aux identifiants dupliqués est refusé avant entraînement et sauvegarde. Garder une copie des anciens artefacts avant toute réexécution volontaire.
 
-## 4. Télécharger les résultats
+### 4. Télécharger les résultats
 
 Avant de fermer le runtime temporaire, exécuter :
 
@@ -92,7 +103,7 @@ files.download("/content/B0-artifacts.zip")
 
 Extraire dans un dossier séparé, vérifier, puis recopier aux mêmes chemins locaux. Sauvegarder les fichiers homonymes avant remplacement. Si d'autres expériences ont été ajoutées localement depuis l'upload, conserver leurs lignes et remplacer uniquement B0. JSON/CSV sont destinés au dépôt ; images, `.keras`, ZIP et `.ipynb` générés sont ignorés.
 
-## 5. Vérifier avant clôture
+### 5. Vérifier avant clôture
 
 - JSON : id B0, configuration ci-dessus, tailles complètes, quatre séries `loss`, `accuracy`, `val_loss`, `val_accuracy` de 5 nombres finis ; accuracies dans `[0, 1]`, losses non négatives.
 - CSV : schéma `id,modification,val_acc,val_loss,params,observation`, une seule ligne B0, 295943 paramètres, métriques de l'epoch 5 cohérentes avec le JSON (tolérance relative `1e-7`, absolue `1e-8`), observation précisant cette epoch.
@@ -101,7 +112,7 @@ Extraire dans un dossier séparé, vérifier, puis recopier aux mêmes chemins l
 
 Actualiser README/TODO/JOURNAL selon les preuves, sans cocher la validation globale du notebook Colab des livrables. En l'absence d'une preuve nécessaire, laisser la clôture en attente plutôt que relancer B0 pour combler la documentation.
 
-## Résultats récupérés et review du 2 octobre 2026
+### Résultats récupérés et review du 2 octobre 2026
 
 JSON/CSV complets et concordants : 24 402 train / 4 307 validation, protocole attendu, une seule ligne B0 et observation « Dernière epoch 5/5 ». Le comptage des fichiers train locaux retrouve 28 709 exemples et le même split.
 

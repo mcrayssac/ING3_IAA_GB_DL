@@ -10,3 +10,5 @@ __pycache__/
 *.tmp
 .venv/
 .DS_Store
+dist/
+training/archives/

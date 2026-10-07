@@ -44,11 +44,13 @@ Sélectionner le kernel de cet environnement dans JupyterLab. Télécharger [FER
 
 Le notebook source est `notebooks/projet.py` (Jupytext). Le `.ipynb` est généré et ignoré par Git. Par défaut, tous les flags d’entraînement sont `False` : le notebook recharge les artefacts existants. Transférer les checkpoints sauvegardés dans `training/checkpoints/` pour reproduire les prédictions. Les données et poids ne sont pas fournis par Git.
 
-Les runs complets utilisent Colab GPU ; le [guide Colab](docs/B0_COLAB.md) décrit le transfert et l’installation, et le [notebook d’exécution](https://colab.research.google.com/drive/1qt1Swy4VEE67PCs_VjhMG7T5WUWxGNfy) conserve les runs historiques. Les configurations B0/C0/E1–E3/A1 et leurs commandes sont dans le notebook source. En local, `python -m src.train --data-dir data` réalise uniquement un smoke test (au plus 256 train / 64 validation, une epoch).
+**Même notebook sur Colab.** Depuis la racine, `scripts/colab_bundle.sh` crée `dist/projet.ipynb`, `dist/projet-code.zip` et `dist/fer2013.zip`. Importer `dist/projet.ipynb` dans Colab puis « Exécuter tout » : la première cellule détecte Colab, demande les deux archives et les extrait ; sur Mac, elle utilise le dépôt local. Le dépôt étant privé, aucun `git clone` n’est fait depuis Colab.
 
-## Démonstration multi-visages
+Les runs complets utilisent Colab GPU ; le [guide Colab](docs/COLAB.md) décrit le transfert et l’installation, et le [notebook d’exécution](https://colab.research.google.com/drive/1qt1Swy4VEE67PCs_VjhMG7T5WUWxGNfy) conserve les runs historiques. Les configurations B0/C0/E1–E3/A1 et leurs commandes sont dans le notebook source. En local, `python -m src.train --data-dir data` réalise uniquement un smoke test (au plus 256 train / 64 validation, une epoch).
 
-**YuNet + A1** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. YuNet détecte des visages ; un YOLO COCO fournit des boîtes de personnes et ne suffit pas. L’API OpenCV existante et les petits poids ONNX sous licence MIT évitent une dépendance supplémentaire.
+## Phase 8 : pipeline final multi-visages
+
+C’est le système complet du sujet (Figure 4) et la démonstration du modèle final. **YuNet + modèle final (`FINAL_MODEL_ID`, A1)** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. YuNet détecte des visages ; un YOLO COCO fournit des boîtes de personnes et ne suffit pas. L’API OpenCV existante et les petits poids ONNX sous licence MIT évitent une dépendance supplémentaire.
 
 Avec `training/checkpoints/A1.keras` déjà présent :
 
@@ -64,18 +66,21 @@ Le téléchargement récupère YuNet, sa licence et trois photos NASA hors FER20
 
 API réutilisable : `load_models()` une fois, puis `detect_expressions(frame_bgr, detector, classifier)` et `annotate_faces(frame_bgr, results)`. L’entrée est BGR uint8 ; les crops sont convertis en RGB avant `predict_faces()`. Les résultats séparent `detector_score` et `expression_probability` (softmax), avec coordonnées `box_xyxy`, classe et expression. L’annotation renvoie une copie BGR. Aucun suivi temporel n’est implémenté.
 
-## Structure utile
+## Carte du projet
 
-| Chemin | Contenu |
-|---|---|
-| `src/data.py` | Chargement, split et prétraitement unique |
-| `src/models.py`, `src/train.py` | MLP/CNN, expériences et contrôles |
-| `src/evaluate.py` | Rapports, inférence et garde du test unique |
-| `src/detect.py` | Détection YuNet, batch A1 et annotation |
-| `notebooks/projet.py` | Notebook source, analyses et démonstration |
-| `tests/` | Contrats des données, modèles et détection |
-| `training/logs/` | Résultats et configurations vérifiés |
-| `SPEC.md`, `TODO.md` | Décisions techniques et avancement |
+| Partie du sujet | Section du notebook | Code | Résultats | Tests |
+|---|---|---|---|---|
+| 1 Données | Phase 1 | `src/data.py` | - | chargement, split, prétraitement |
+| 2 Référence dense | Phase 2 | `src/models.py` (`build_mlp`), `src/train.py` | `training/logs/B0_history.json` | MLP |
+| 3 CNN | Phase 3 | `src/models.py` (`build_cnn`) | - | CNN |
+| 4 Entraînement | Phase 4 | `src/train.py` (`train_cnn`, `verify_cnn_run`) | `C0_history.json` | callbacks, epochs |
+| 5 Évaluation | Phase 5, test officiel | `src/evaluate.py` | `test_evaluation.json` | évaluation, test unique |
+| 6 Expériences | Phase 6 | `src/train.py` (`PHASE6_EXPERIMENTS`) | `E1`-`E3_history.json`, `experiments.csv` | CSV, expériences |
+| 7 Enrichissement | Phase 7 (A1) | `src/train.py` (`_augmentation`) | `A1_history.json` | augmentation |
+| 8 Multi-visages | Phase 8, pipeline final | `src/detect.py` | `data/demo/annotated/` (ignoré) | `tests/test_detection.py` |
+| 9 Vidéo | non faite (API de la phase 8 réutilisable) | - | - | - |
+
+Autres fichiers : `notebooks/projet.py` (source Jupytext du notebook unique), `scripts/colab_bundle.sh` (archives Colab), `docs/COLAB.md` (procédures et preuves des runs Colab), `SPEC.md` (décisions techniques), `TODO.md` (avancement et conformité au sujet), `JOURNAL.md` (historique). Checkpoints dans `training/checkpoints/` et archives d’artefacts dans `training/archives/`, tous deux ignorés par Git.
 
 ## Limites
 
