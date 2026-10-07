@@ -789,6 +789,144 @@ else:
 # attend A1 : `FINAL_MODEL_ID=None` et `RUN_TEST=False` restent inchangés.
 
 # %% [markdown]
+# ## Phase 7 — data augmentation (A1)
+#
+# **Pourquoi.** E3 surapprend après l'epoch 7. À cette epoch, son accuracy train
+# vaut 0,623637 contre 0,559322 en validation, puis sa val_loss remonte jusqu'à
+# 1,349853 à l'epoch 12 (section phase 6). Le réseau mémorise donc une partie des
+# 24 402 images d'entraînement. La data augmentation applique à chaque batch des
+# transformations aléatoires et plausibles. Le réseau ne revoit presque jamais
+# exactement la même image, ce qui devrait limiter cette mémorisation.
+#
+# **Protocole.** A1 reprend E3 à l'identique : poids neufs (seed 42), même split
+# (empreintes vérifiées), même architecture, Adam 0,0005, batch 64, 30 epochs au
+# maximum et patience 5 sur val_loss. La seule différence est l'augmentation des
+# batches d'entraînement. La validation et le test ne sont jamais augmentés.
+# L'augmentation est appliquée dans le pipeline de données et non dans le modèle,
+# donc `A1.keras` garde exactement l'architecture d'E3. Reprendre les poids d'E3
+# mélangerait l'effet de l'augmentation avec celui d'epochs supplémentaires.
+#
+# | Transformation | Réglage | Justification |
+# |---|---|---|
+# | Flip horizontal | une image sur deux | Une expression reste la même en miroir. Le flip vertical est exclu, car un visage à l'envers n'existe pas dans les données. |
+# | Rotation | ±18° | Inclinaison de la tête. |
+# | Translation | ±15 % | Visage imparfaitement centré. |
+# | Zoom | ±15 % | Cadrage plus ou moins serré. |
+# | Contraste | ±20 % | Éclairage variable. |
+#
+# Les zones découvertes par la rotation, la translation ou le zoom sont remplies
+# par réflexion des bords, et les pixels restent dans [0, 1].
+#
+# > *Notre hypothèse :* A1 devrait obtenir une val_loss inférieure à celle d'E3
+# > (1,192440), avec une meilleure epoch plus tardive et un surapprentissage plus
+# > lent. Ces transformations sont assez fortes, donc la convergence peut aussi
+# > ralentir. Si la meilleure epoch approche le plafond de 30, le budget limitera
+# > l'interprétation. L'accuracy train d'A1 est mesurée sur des images augmentées,
+# > donc plus difficiles : l'écart train/validation n'est pas directement
+# > comparable à celui d'E3.
+
+# %%
+from src.train import _augmentation
+
+augmented = _augmentation(SEED)(np.repeat(X_train[:1], 8, axis=0), training=True).numpy()
+fig, axes = plt.subplots(1, 9, figsize=(15, 2.2), layout="constrained")
+for axis, image, title in zip(axes, (X_train[0], *augmented), ("original", *[f"augmentée {i}" for i in range(1, 9)])):
+    axis.imshow(image[..., 0], cmap="gray", vmin=0, vmax=1)
+    axis.set_title(title, fontsize=8)
+    axis.axis("off")
+fig.suptitle(f"Huit tirages de l'augmentation A1 sur une image train ({CLASS_NAMES[y_train[0]]})")
+plt.show()
+
+# %% [markdown]
+# > *Observation :* les huit tirages montrent des miroirs, des rotations, des
+# > recadrages et des variations de contraste, et l'expression reste lisible.
+# > Ils sont aussi un peu plus flous que l'original, car la rotation, la
+# > translation et le zoom ré-échantillonnent les pixels par interpolation.
+# > Les images d'entraînement d'A1 diffèrent donc aussi de la validation par leur
+# > netteté. L'effet de cet écart n'est pas mesuré séparément.
+
+# %%
+RUN_A1 = False  # Activer seul, sur Colab GPU, comme RUN_E1 à RUN_E3.
+run_phase6("A1", RUN_A1)
+
+# %%
+a1_payload = load_history("A1")
+if a1_payload is not None:
+    if (CHECKPOINT_DIR / "A1.keras").is_file():
+        verify_cnn_run(X_val, y_val, run_id="A1", X_train=X_train, y_train=y_train,
+                       log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+    else:
+        print(f"A1 : checkpoint absent ({CHECKPOINT_DIR / 'A1.keras'}) ; concordance des poids non vérifiée.")
+    plot_history("A1", a1_payload["history"], a1_payload["best_epoch"])
+
+candidates = {run_id: payload for run_id, payload in {**phase6_payloads, "A1": a1_payload}.items()
+              if payload is not None}
+final_rows = [{"id": run_id, "epoch retenue": payload["best_epoch"],
+               "epochs exécutées": payload["config"]["epochs_ran"],
+               "val_acc": payload["best_metrics"]["val_accuracy"], "val_loss": payload["best_metrics"]["val_loss"]}
+              for run_id, payload in candidates.items()]
+display(pd.DataFrame(final_rows))
+print("Sélection :", SELECTION_CRITERION)
+SELECTED_ID = None
+if a1_payload is None:
+    print("A1 absent : run Colab requis ; aucun choix définitif.")
+else:
+    SELECTED_ID = min(candidates, key=lambda run_id: (
+        candidates[run_id]["best_metrics"]["val_loss"], -candidates[run_id]["best_metrics"]["val_accuracy"], run_id))
+    print(f"Modèle retenu par le critère : {SELECTED_ID}")
+
+# %%
+if a1_payload is not None and all((CHECKPOINT_DIR / f"{run_id}.keras").is_file() for run_id in ("E3", "A1")):
+    for run_id in ("E3", "A1"):
+        validation_results[run_id] = evaluate(tf.keras.models.load_model(CHECKPOINT_DIR / f"{run_id}.keras"),
+                                              X_val, y_val)
+    f1_a1 = pd.DataFrame({run_id: class_report(y_val, validation_results[run_id]["y_pred"])["f1-score"]
+                          for run_id in ("E3", "A1")}).loc[[*CLASS_NAMES, "macro avg", "weighted avg"]]
+    f1_a1["écart A1 − E3"] = f1_a1["A1"] - f1_a1["E3"]
+    print("F1 par classe sur la validation :")
+    print(f1_a1.round(3).to_string())
+
+# %% [markdown]
+# **Résultats A1 du 7 octobre 2026.** A1 a été entraîné sur Colab GPU
+# (TensorFlow 2.21.0 / Keras 3.13.2) avec le split, l'architecture et le
+# protocole d'E3. Son checkpoint, rechargé en local, retrouve exactement
+# l'accuracy validation de l'historique et sa loss à 3e-7 près. Les lignes du CSV
+# des autres runs sont inchangées.
+#
+# > *Nos observations :*
+# > - **Meilleur checkpoint.** A1 retient l'epoch 24 sur 29 exécutées, avec une
+# >   val_loss de 1,126252 et une val_accuracy de 0,577200. Par rapport à E3
+# >   (epoch 7), la loss baisse de 0,066188 et l'accuracy gagne 1,79 point.
+# > - **Surapprentissage retardé.** La loss train d'A1 reste au-dessus de la loss
+# >   validation jusqu'à l'epoch 22. À sa dernière epoch, la val_loss d'A1 vaut
+# >   1,156619, contre 1,349853 pour E3. L'accuracy train finale d'A1 (0,571838)
+# >   reste proche de sa validation (0,566520), alors qu'E3 finissait à 0,770429
+# >   contre 0,573717. L'accuracy train d'A1 est mesurée sur des images augmentées,
+# >   ce qui limite cette comparaison.
+# > - **Budget.** L'arrêt anticipé intervient à l'epoch 29, cinq epochs après le
+# >   minimum, juste sous le plafond de 30. La loss train baisse encore
+# >   (1,129738) : un budget plus long pourrait modifier le résultat, ce qui n'est
+# >   pas testé.
+# > - **Par classe.** A1 progresse sur angry (+0,039 de F1), happy (+0,035) et
+# >   sad (+0,020), mais recule sur disgust (0,253 → 0,182) et fear (−0,052).
+# >   Le F1 macro baisse légèrement (0,507 → 0,502) alors que le F1 pondéré
+# >   augmente (0,561 → 0,569). Le gain global vient donc surtout des classes
+# >   fréquentes.
+#
+# > *Nos hypothèses :* notre hypothèse initiale est confirmée sur ce run : val_loss
+# > plus basse, meilleure epoch plus tardive et surapprentissage plus lent. Le recul
+# > de disgust et fear pourrait venir d'indices fins (nez plissé, yeux écarquillés)
+# > atténués par le recadrage et le flou d'interpolation. Ce n'est pas vérifié, et
+# > le F1 de disgust repose sur 65 images seulement.
+#
+# > *Notre choix :* selon le critère fixé avant les runs (val_loss minimale du
+# > checkpoint), le modèle final est **A1**. Ce choix favorise la qualité globale
+# > des probabilités et l'accuracy, mais pas le F1 macro, où E3 reste légèrement
+# > devant. Six modèles ont été comparés sur la même validation avec une seule
+# > seed, donc la meilleure val_loss peut être un peu optimiste. Le test officiel
+# > fournit une estimation indépendante.
+
+# %% [markdown]
 # ### Test officiel — évaluation unique du modèle final
 #
 # Le test n'est évalué qu'une fois, après comparaison avec A1 en phase 7 à partir
@@ -806,7 +944,8 @@ from src.train import _validation_digest
 # Activer une seule fois, après le choix du modèle final ; ensuite, remettre à False
 # et versionner training/logs/test_evaluation.json.
 RUN_TEST = False
-FINAL_MODEL_ID = None  # Choix définitif seulement après la phase 7 (A1).
+FINAL_MODEL_ID = "A1"  # Choisi en phase 7 par le critère fixé avant les runs.
+assert SELECTED_ID in (None, FINAL_MODEL_ID), "Le modèle final doit suivre le critère de sélection."
 test_payload = load_test_evaluation(LOG_DIR)
 if RUN_TEST and test_payload is not None:
     print("Test officiel déjà évalué : relecture du résultat, aucune nouvelle évaluation.")
@@ -822,3 +961,44 @@ else:
           f"loss={test_payload['loss']:.6f}")
     show_analysis(f"{test_payload['run_id']} test", X_test, y_test,
                   test_payload["y_pred"], test_payload["confidence"])
+
+# %% [markdown]
+# **Résultat du test officiel (évaluation unique du 7 octobre 2026).** A1 a été
+# évalué une seule fois sur les 7 178 images du test, après le choix fait sur la
+# validation. `test_evaluation.json` conserve ce résultat et les empreintes du
+# checkpoint et du test. Une seconde évaluation a bien été refusée.
+#
+# > *Nos observations :*
+# > - **Score global.** L'accuracy test vaut 0,575508 et la loss 1,131685, contre
+# >   0,577200 et 1,126252 en validation, soit un écart de 0,17 point d'accuracy
+# >   et de 0,005433 de loss. La validation n'a donc pas sensiblement surestimé
+# >   A1, malgré la sélection parmi six modèles.
+# > - **Classes bien reconnues.** happy reste la mieux reconnue (F1 0,802, recall
+# >   0,848), suivie de surprise (0,694) et neutral (0,528).
+# > - **Classes difficiles.** disgust a le F1 le plus bas (0,252, recall 0,153).
+# >   Le modèle ne prédit disgust que 24 fois pour 111 images, et 43 % des vraies
+# >   disgust sont prédites angry. fear suit (F1 0,324, recall 0,263) : ses images
+# >   partent vers sad (27 %), angry (15 %) et surprise (13 %).
+# > - **Confusions principales.** fear → sad (273 images), sad → neutral (250),
+# >   neutral → sad (246), angry → sad (172) et fear → angry (151). On retrouve
+# >   le groupe sad/neutral/fear observé en validation, avec angry en plus.
+# > - **Équilibre par classe.** Le F1 macro (0,508) reste inférieur au F1 pondéré
+# >   (0,565), car les classes fréquentes sont les mieux reconnues. Les F1 par
+# >   classe sont proches de ceux d'A1 en validation.
+# > - **Erreurs confiantes.** Sept des huit erreurs les plus confiantes
+# >   (p ≥ 0,98) sont prédites happy, sur des visages souriants annotés surprise,
+# >   neutral, sad ou fear. L'image 5, annotée fear, est prédite surprise avec une
+# >   bouche grande ouverte.
+#
+# > *Nos hypothèses :* comme en validation, plusieurs erreurs confiantes
+# > paraissent ambiguës ou mal annotées, par exemple un large sourire annoté sad.
+# > Une partie de ces erreurs relèverait donc du bruit d'annotation de FER2013
+# > plutôt que du modèle. La confusion disgust → angry pourrait venir d'indices
+# > communs (sourcils froncés, bouche crispée) et du faible nombre d'exemples
+# > disgust. Ces causes ne sont pas vérifiées séparément.
+#
+# > *Limites :* ce score décrit un seul run (seed 42) et un seul modèle évalué sur
+# > le test. FER2013 contient des images de faible résolution, des annotations
+# > ambiguës et des biais de population. Une expression prédite n'est pas une
+# > émotion certaine. Les réglages ne doivent plus être modifiés à partir de ces
+# > résultats, sinon le test ne serait plus une évaluation indépendante.

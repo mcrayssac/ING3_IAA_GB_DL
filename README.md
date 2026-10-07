@@ -83,6 +83,12 @@ Runs réels du 7 octobre 2026 sur Tesla T4 (TensorFlow 2.21.0 / Keras 3.13.2), d
 
 Les historiques/checkpoints ont été récupérés, leurs empreintes contrôlées et les métriques JSON/CSV confrontées à la validation rechargée en local (écart de loss inférieur à 2e-7). La relecture flags False est vérifiée en local et dans Colab avec `fit` interdit ; les trois courbes ont été inspectées, et le cas sans artefacts ne produit ni métrique ni candidat. Les historiques/checkpoints B0/C0 et leurs lignes CSV sont préservés. Aucun run E1–E3 ni analyse n'est encore nécessaire ; le choix définitif et le test unique attendent A1 en phase 7.
 
+## Phase 7 : A1 sur Colab
+
+A1 reprend E3 avec des poids neufs et ajoute uniquement l'augmentation des batches d'entraînement (`_augmentation()` dans `src/train.py` : flip horizontal, rotation ±18°, translation et zoom ±15 %, contraste ±20 %). La validation et le test ne sont jamais augmentés, et `A1.keras` garde l'architecture d'E3. Même procédure que E1–E3 : transférer aussi `training/logs/E*` et les checkpoints E1–E3, puis activer seulement `RUN_A1` dans la section phase 7 du notebook. Récupérer `training/logs/A1_history.json`, `training/logs/experiments.csv` et `training/checkpoints/A1.keras`. Contrôle : `verify_cnn_run(X_val, y_val, run_id="A1", X_train=X_train, y_train=y_train)`. Smoke temporaire : `train_experiment("A1", ..., smoke=True, log_dir=<temp>/logs, checkpoint_dir=<temp>/checkpoints)`.
+
+**Résultats A1 et modèle final.** A1 retient l'epoch 24 sur 29 : val_loss 1,126252 et val_acc 0,577200, contre 1,192440 et 0,559322 pour E3. Selon le critère fixé avant les runs, le modèle final est **A1** (`training/checkpoints/A1.keras`, ignoré par Git). Le test officiel a été évalué une seule fois : accuracy 0,575508, loss 1,131685, F1 macro 0,508. Le résultat est dans `training/logs/test_evaluation.json` ; `RUN_TEST` reste à False et le notebook relit ce fichier.
+
 ## Protocole fixé
 
 | Élément | Choix |
@@ -100,7 +106,7 @@ Les historiques/checkpoints ont été récupérés, leurs empreintes contrôlée
 ```text
 src/data.py             chargement, split et prétraitement
 src/models.py           build_mlp() et build_cnn(), entrée image et sortie softmax
-src/train.py            entraînement B0/C0/E1–E3, smoke et contrôle des checkpoints
+src/train.py            entraînement B0/C0/E1–E3/A1, augmentation, smoke et contrôle des checkpoints
 src/evaluate.py         évaluation, rapport par classe, exemples et test unique
 notebooks/projet.py     source Jupytext du notebook
 tests/test_shapes.py    contrats des données, intégrité du split et sortie MLP
