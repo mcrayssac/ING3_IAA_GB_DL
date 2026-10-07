@@ -23,6 +23,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+from PIL import Image
 
 from src.data import CLASS_NAMES, K, load_dataset
 
@@ -44,8 +46,18 @@ print(f"Train : {X_train.shape[0]}, validation : {X_val.shape[0]}, test : {X_tes
 print(f"Dimensions : {X_train.shape[1:]}, format : {X_train.dtype}, pixels dans [0, 1]")
 print("Classes :", ", ".join(CLASS_NAMES))
 
+sources = sorted(path for split in ("train", "test") for path in (DATA_DIR / split).glob("*/*"))
+assert len(sources) == len(y_train) + len(y_val) + len(y_test)
+formats = set()
+for path in sources:
+    with Image.open(path) as image:
+        formats.add((image.format, image.mode, image.size))
+print(f"Total : {len(sources)} images ({len(y_train) + len(y_val)} train officiel + {len(y_test)} test)")
+print("Fichiers source (format, mode, taille) :", sorted(formats))
+
 # %% [markdown]
-# Les images FER2013 sont déjà en 48 x 48 gris. Le redimensionnement conserve
+# Les fichiers source sont tous des JPEG en niveaux de gris (mode `L`) de 48 x 48
+# pixels, d'après la cellule précédente. Le redimensionnement conserve
 # néanmoins cette taille d'entrée fixe si une image diffère. La normalisation en
 # `float32` dans [0, 1] stabilise l'entraînement. Les émotions sont encodées par
 # des entiers dans l'ordre de `CLASS_NAMES`, compatible avec la loss sparse. Le
@@ -53,14 +65,20 @@ print("Classes :", ", ".join(CLASS_NAMES))
 # sont séparés de façon stratifiée (15 %, seed 42) pour former la validation.
 
 # %%
-all_labels = np.concatenate((y_train, y_val))
-counts = np.bincount(all_labels, minlength=K)
+counts = pd.DataFrame(
+    {
+        "train officiel": np.bincount(np.concatenate((y_train, y_val)), minlength=K),
+        "test": np.bincount(y_test, minlength=K),
+    },
+    index=CLASS_NAMES,
+)
 plt.figure(figsize=(9, 4))
-plt.bar(CLASS_NAMES, counts)
+plt.bar(CLASS_NAMES, counts["train officiel"])
 plt.title("Répartition par classe dans train + validation")
 plt.ylabel("Nombre d'images")
 plt.xticks(rotation=30)
 plt.show()
+print(pd.concat((counts, counts.sum().to_frame("total").T)).to_string())
 print("La classe disgust est particulièrement minoritaire : ce déséquilibre sera suivi par classe.")
 
 # %%
@@ -178,3 +196,101 @@ if b0_history is not None:
 # le test officiel n'a pas été évalué. Les preuves et leurs limites figurent
 # dans le guide ; les courbes ci-dessus proviennent uniquement du run de cette session.
 # La validation globale du notebook Colab demeure une étape distincte du suivi.
+
+# %% [markdown]
+# ## Phase 3  - CNN
+#
+# Le MLP aplatit l'image dès l'entrée et ne représente donc plus la position
+# relative des pixels. Un réseau convolutif (CNN) la conserve. Sa première partie
+# extrait des caractéristiques locales, sa seconde partie classe l'image à partir
+# de ces caractéristiques.
+#
+# **Filtres et convolution.** Un filtre est une petite grille de poids appris.
+# La convolution le fait glisser sur l'image et calcule, à chaque position, la
+# somme pondérée des pixels couverts plus un biais. Les mêmes poids servent à
+# toutes les positions, donc un motif appris est détecté où qu'il apparaisse.
+#
+# **Feature maps.** Chaque filtre produit une carte de caractéristiques (feature
+# map) qui indique où son motif répond fortement. Une couche de 32 filtres produit
+# 32 cartes, empilées comme des canaux.
+#
+# **Kernel, stride et padding.** Le kernel est la taille du filtre, ici 3 x 3.
+# Le stride est le pas du glissement, ici 1 pixel (valeur par défaut de Keras).
+# Le padding `same` ajoute des zéros autour de l'entrée pour que la sortie garde
+# la même hauteur et la même largeur.
+#
+# **ReLU.** Après chaque convolution, `max(0, z)` garde les réponses positives et
+# annule les autres, comme dans la couche cachée du MLP. Sans cette non-linéarité,
+# l'enchaînement des couches resterait une seule opération linéaire.
+#
+# **Pooling.** Le MaxPooling 2 x 2 garde le maximum de chaque bloc de 2 x 2 pixels,
+# avec un pas de 2. Il divise la hauteur et la largeur par deux sans paramètre
+# appris. Le réseau devient moins sensible à un petit décalage du motif et les
+# couches suivantes traitent moins de positions.
+#
+# **Flatten, Dense et sortie.** Après le dernier bloc, `Flatten` met les cartes
+# bout à bout dans un vecteur. Une couche Dense de 128 neurones ReLU combine ces
+# caractéristiques. La sortie Dense(7, softmax) donne une probabilité par
+# expression, comme pour B0.
+
+# %%
+from src.models import build_cnn
+
+
+cnn = build_cnn()
+cnn.summary()
+assert cnn.input_shape == (None, 48, 48, 1)
+assert cnn.output_shape == (None, K)
+print(f"CNN C0 : {cnn.count_params():,} paramètres, contre {model.count_params():,} pour le MLP B0.")
+
+# %% [markdown]
+# **Évolution des dimensions.** Le tableau précédent donne la forme de sortie et
+# le nombre de paramètres de chaque couche. Chaque convolution garde la taille
+# grâce au padding `same` et chaque pooling la divise par deux, soit
+# 48 → 24 → 12 → 6. Le nombre de cartes passe de 1 canal à 32, 64 puis 128.
+# `Flatten` produit donc un vecteur de 6 x 6 x 128 = 4 608 valeurs.
+#
+# Une convolution compte `(k x k x C_entrée + 1) x C_sortie` paramètres, avec un
+# poids par case du filtre et par canal d'entrée, plus un biais par filtre.
+# Une couche Dense compte `(entrées + 1) x neurones` paramètres.
+#
+# | Couche | Calcul | Paramètres |
+# |---|---|---|
+# | Conv2D 32 | (3 x 3 x 1 + 1) x 32 | 320 |
+# | Conv2D 64 | (3 x 3 x 32 + 1) x 64 | 18 496 |
+# | Conv2D 128 | (3 x 3 x 64 + 1) x 128 | 73 856 |
+# | Dense 128 | (4 608 + 1) x 128 | 589 952 |
+# | Dense 7 | (128 + 1) x 7 | 903 |
+# | **Total** | | **683 527** |
+#
+# Comme les poids des filtres sont partagés entre positions, les trois
+# convolutions ne comptent que 92 672 paramètres. La couche Dense cachée
+# concentre 86 % du total.
+#
+# > *Nos choix :*
+# > - **Trois blocs conv/pooling.** Chaque bloc voit une zone plus large de
+# >   l'image d'origine, car le pooling espace les positions lues par la
+# >   convolution suivante. Une sortie de la première convolution dépend de
+# >   3 x 3 pixels, de la deuxième de 8 x 8 et de la troisième de 18 x 18.
+# >   Les premiers filtres peuvent ainsi répondre à des
+# >   contours et les suivants à des zones plus larges, comme les yeux ou la
+# >   bouche. Ce rôle reste une hypothèse, car les filtres appris ne sont pas
+# >   encore visualisés.
+# > - **32, 64 puis 128 filtres.** Le nombre de cartes double quand la résolution
+# >   est divisée par deux, pour compenser la perte de détails spatiaux par
+# >   davantage de motifs.
+# > - **Kernel 3 x 3 et padding `same`.** Un petit filtre a peu de poids (9 par
+# >   canal d'entrée), et l'empilement des blocs élargit ensuite la zone vue. Le
+# >   padding garde les bords du visage et rend les dimensions simples à suivre.
+# > - **Arrêt à 6 x 6.** Avec deux blocs seulement, `Flatten` produirait
+# >   12 x 12 x 64 = 9 216 valeurs et le modèle 1 199 495 paramètres. Le troisième
+# >   bloc réduit donc le total de 43 % tout en conservant une carte où le haut et
+# >   le bas du visage restent distincts.
+# > - **Dense de 128 neurones.** C'est la largeur de la couche cachée de B0. La
+# >   comparaison porte ainsi surtout sur l'extraction convolutive.
+#
+# > *Notre hypothèse :* C0 compte environ 2,3 fois plus de paramètres que B0
+# > (683 527 contre 295 943) et exploite la structure spatiale. Il devrait donc
+# > dépasser l'accuracy de validation de B0 (0,360808). Sans régularisation, un
+# > surapprentissage est aussi possible. Les courbes de la phase 4 permettront de
+# > vérifier ces deux points.

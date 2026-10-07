@@ -77,7 +77,7 @@ Il utilise au plus 256 train / 64 validation / 1 epoch et écrit `smoke_history.
 
 ```text
 src/data.py             chargement, split et prétraitement
-src/models.py           build_mlp(), entrée image et sortie softmax
+src/models.py           build_mlp() et build_cnn(), entrée image et sortie softmax
 src/train.py            entraînement MLP, smoke local et enregistrement B0
 notebooks/projet.py     source Jupytext du notebook
 tests/test_shapes.py    contrats des données, intégrité du split et sortie MLP

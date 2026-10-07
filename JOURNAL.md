@@ -45,3 +45,7 @@ Commande utile : retirer `%pip install -q -r /content/fer2013-project/requiremen
 Fait : phase 2 validée, B0 JSON/CSV/modèle conformes et validation rechargée concordante ; 23 tests, notebook sans B0 et courbes vérifiés ; guide déplacé, CSV renforcé, artefacts préservés.
 Reste : phase 9 Colab globale ; GPU confirmé par assertion selon utilisateur, sortie matérielle non conservée ; commit/push/MR à réaliser par utilisateur.
 Commande utile : .venv/bin/python -m pytest -q && git diff --check ; reproduction et preuves : docs/B0_COLAB.md.
+
+Fait : phase 3  - `build_cnn()` (3 blocs Conv2D + ReLU -> MaxPooling 32/64/128, Dense 128, sortie softmax 7, 683 527 paramètres) et test dédié ; notebook : summary couche par couche, notions CNN, calcul des paramètres, justification et hypothèse sur C0. Compléments phase 1 : total 35 887 images, effectifs par classe train/test, fichiers JPEG gris 48 x 48. 24 tests réussis, notebook exécuté sans erreur avec RUN_B0=False.
+Reste : phase 4  - entraîner C0 sur Colab GPU, courbes et comparaison avec B0 ; performances de C0 encore inconnues.
+Commande utile : .venv/bin/python -m pytest -q && .venv/bin/jupytext --to ipynb notebooks/projet.py

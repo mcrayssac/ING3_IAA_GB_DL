@@ -32,7 +32,7 @@ Phases 1 à 6 : socle obligatoire. Enrichissement visé : phase 7 (data augmenta
 - [x] Notebook : source/licence, nb d'images, classes, répartition par classe (graphique), dimensions, format, déséquilibre, 5 exemples par classe.
 - [x] Explications markdown : rôle du redimensionnement, de la normalisation, de l'encodage, du split.
 - [x] `tests/test_shapes.py` : formes, classes, stratification, reproductibilité et conservation des exemples (10 tests réussis, Python 3.11).
-- [ ] Compléments demandés par le sujet : nombre total d'images (35 887 = 28 709 train + 7 178 test), effectifs chiffrés par classe pour train et test, format source (JPEG, niveaux de gris, 48 x 48).
+- [x] Compléments demandés par le sujet : nombre total d'images (35 887 = 28 709 train + 7 178 test), effectifs chiffrés par classe pour train et test, format source (JPEG, niveaux de gris, 48 x 48).
 
 ## Phase 2 - Baseline MLP (5 pts avec la phase 3) - resp. :
 - [x] `build_mlp()` et préparation de l'entraînement B0 reproductible, sauvegarde de l'historique et des résultats (CSV temporaire : réexécution et refus des fichiers mal formés avant entraînement vérifiés).
@@ -41,8 +41,8 @@ Phases 1 à 6 : socle obligatoire. Enrichissement visé : phase 7 (data augmenta
 - [x] Explications markdown : image -> vecteur, poids/biais, propagation avant, activations, loss, rétropropagation, descente de gradient, softmax ; appels et code des courbes prêts, affichage des résultats après B0.
 
 ## Phase 3 - CNN (5 pts avec la phase 2) - resp. : Maxime
-- [ ] `build_cnn()` paramétrable, au moins deux blocs `Conv2D + ReLU -> MaxPooling`, puis `Flatten -> Dense -> Dense(7, softmax)`. Fait quand : tableau couche par couche (shape de sortie + nb de paramètres) affiché une fois.
-- [ ] Explications markdown : filtres, convolution, feature maps, kernel, stride, padding, ReLU, pooling, Flatten, Dense, sortie ; évolution des dimensions couche par couche ; justification de l'architecture.
+- [x] `build_cnn()` paramétrable, au moins deux blocs `Conv2D + ReLU -> MaxPooling`, puis `Flatten -> Dense -> Dense(7, softmax)`. Fait quand : tableau couche par couche (shape de sortie + nb de paramètres) affiché une fois.
+- [x] Explications markdown : filtres, convolution, feature maps, kernel, stride, padding, ReLU, pooling, Flatten, Dense, sortie ; évolution des dimensions couche par couche ; justification de l'architecture.
 
 ## Phase 4 - Entraînement (3 pts avec la phase 5) - resp. : Paul
 - [ ] `src/train.py` : compile, fit, callbacks (`ModelCheckpoint`, `EarlyStopping`), historique sauvegardé dans `training/logs/`.
