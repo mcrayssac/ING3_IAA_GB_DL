@@ -4,7 +4,7 @@ Projet Deep Learning : classification de sept expressions faciales à partir du 
 
 ## État du projet
 
-La phase 1 données est terminée et validée localement par l'utilisateur, y compris le chargement réel de FER2013. **Phase 2 validée : B0 complet, artefacts récupérés et vérifiés.** Le JSON, le CSV et le modèle sont cohérents avec les 5 epochs ; la validation du modèle rechargé retrouve les métriques finales. La trace rapporte les versions et les epochs ; le succès du contrôle GPU est confirmé par l'utilisateur, sans sortie GPU conservée. La validation globale du notebook sur Colab reste une étape future distincte.
+La phase 1 données est terminée et validée localement par l'utilisateur, y compris le chargement réel de FER2013. **Phase 2 validée : B0 complet, artefacts récupérés et vérifiés.** Le JSON, le CSV et le modèle sont cohérents avec les 5 epochs ; la validation du modèle rechargé retrouve les métriques finales. La trace rapporte les versions et les epochs ; le succès du contrôle GPU est confirmé par l'utilisateur, sans sortie GPU conservée. Le 2026-10-05, `B0.keras` rechargé localement redonne la même accuracy de validation (0.360808). La validation globale du notebook sur Colab reste une étape future distincte.
 
 ## Installation locale
 
