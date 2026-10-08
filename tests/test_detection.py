@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from src.data import CLASS_NAMES, K, preprocess_face
-from src.detect import _decode_yolo, annotate_faces, detect_expressions
+from src.detect import _decode_yolo, _yolo_candidates, annotate_faces, detect_expressions
 from src.evaluate import predict_faces
 
 
@@ -143,3 +143,6 @@ def test_yolo_decoding_letterbox_and_nms() -> None:
     np.testing.assert_allclose(faces[1, :4], [980, 620, 40, 40])
     np.testing.assert_allclose(faces[:, 14], [0.9, 0.7])
     assert _decode_yolo(output, (0.5, 0.5), (0, 80), score_threshold=0.95).shape == (0, 15)
+    boxes, scores = _yolo_candidates(output, (0.5, 0.5), (0, 80), score_threshold=0.5)
+    assert boxes.shape == (3, 4)  # Avant NMS : la boîte chevauchante est encore là.
+    np.testing.assert_allclose(scores, [0.9, 0.8, 0.7])

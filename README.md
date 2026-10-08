@@ -59,6 +59,8 @@ Les runs complets utilisent Colab GPU ; le [guide Colab](docs/COLAB.md) décrit 
 
 C’est le système complet du sujet (Figure 4) et la démonstration du modèle final. **YOLO11n-face + modèle final (`FINAL_MODEL_ID`, S5)** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. Un YOLO COCO fournit des boîtes de personnes et ne suffit pas ; il faut un détecteur entraîné sur des visages. Deux sont disponibles via OpenCV, sans dépendance supplémentaire : **YOLO11n-face (par défaut)** et YuNet (`--detector-type yunet` ou `FACE_DETECTOR = "yunet"`).
 
+**Pipeline pas à pas.** Dans le notebook (phase 8), la cellule « Pipeline pas à pas » suit une photo à travers chaque étape : réduction, letterbox, scores des 3 grilles YOLO, seuil, IoU et NMS (vérifiée contre OpenCV), recadrages, entrées 48×48, feature maps du CNN et probabilités. `RUN_CUSTOM_IMAGE=True` applique cette trace à votre photo.
+
 **Pourquoi YOLO11n-face par défaut.** Banc d'essai sur 80 photos NASA du domaine public (portraits officiels ISS, photos en orbite, Artemis II), seuils par défaut, sans boîtes de référence :
 
 | Critère | YuNet (seuil 0,9) | YOLO11n-face (seuil 0,5) |

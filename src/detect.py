@@ -78,11 +78,11 @@ def download_demo_assets(
         _download(url, demo_dir / name)
 
 
-def _decode_yolo(
+def _yolo_candidates(
     output: np.ndarray, scale: tuple[float, float], pad: tuple[int, int],
-    score_threshold: float = YOLO_SCORE_THRESHOLD, nms_threshold: float = YOLO_NMS_THRESHOLD,
-) -> np.ndarray:
-    """Convertit la sortie YOLO (1, 5, N) en lignes YuNet : x, y, w, h, 10 points nuls, score."""
+    score_threshold: float = YOLO_SCORE_THRESHOLD,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Candidats YOLO avant NMS : boîtes x, y, w, h dans l'image d'entrée et scores."""
     predictions = np.asarray(output, dtype=np.float32).reshape(5, -1).T  # cx, cy, w, h, score.
     predictions = predictions[predictions[:, 4] >= score_threshold]
     boxes = np.column_stack((
@@ -90,12 +90,21 @@ def _decode_yolo(
         (predictions[:, 1] - predictions[:, 3] / 2 - pad[1]) / scale[1],
         predictions[:, 2] / scale[0], predictions[:, 3] / scale[1],
     )) if len(predictions) else np.empty((0, 4), np.float32)
+    return boxes, predictions[:, 4]
+
+
+def _decode_yolo(
+    output: np.ndarray, scale: tuple[float, float], pad: tuple[int, int],
+    score_threshold: float = YOLO_SCORE_THRESHOLD, nms_threshold: float = YOLO_NMS_THRESHOLD,
+) -> np.ndarray:
+    """Convertit la sortie YOLO (1, 5, N) en lignes YuNet : x, y, w, h, 10 points nuls, score."""
+    boxes, scores = _yolo_candidates(output, scale, pad, score_threshold)
     keep = np.asarray(cv2.dnn.NMSBoxes(
-        boxes.tolist(), predictions[:, 4].tolist(), score_threshold, nms_threshold,
+        boxes.tolist(), scores.tolist(), score_threshold, nms_threshold,
     ), dtype=int).reshape(-1)
     faces = np.zeros((len(keep), 15), dtype=np.float32)
     faces[:, :4] = boxes[keep]
-    faces[:, 14] = predictions[keep, 4]
+    faces[:, 14] = scores[keep]
     return faces
 
 
@@ -113,17 +122,27 @@ class YoloFaceDetector:
     def setInputSize(self, size) -> None:
         """Sans effet : le letterbox ramène toujours l'image à 640 x 640."""
 
-    def detect(self, image_bgr: np.ndarray):
-        """Letterbox 640 (bandes grises 114), inférence puis décodage et NMS."""
+    @staticmethod
+    def letterbox(image_bgr: np.ndarray):
+        """Image centrée dans un carré 640 x 640 (bandes grises 114), avec échelle et décalage."""
         height, width = image_bgr.shape[:2]
         ratio = YOLO_INPUT / max(height, width)
         resized = cv2.resize(image_bgr, (max(1, round(width * ratio)), max(1, round(height * ratio))))
         pad = ((YOLO_INPUT - resized.shape[1]) // 2, (YOLO_INPUT - resized.shape[0]) // 2)
         canvas = np.full((YOLO_INPUT, YOLO_INPUT, 3), 114, dtype=np.uint8)
         canvas[pad[1]:pad[1] + resized.shape[0], pad[0]:pad[0] + resized.shape[1]] = resized
+        return canvas, (resized.shape[1] / width, resized.shape[0] / height), pad
+
+    def raw(self, image_bgr: np.ndarray):
+        """Sortie brute du réseau (1, 5, 8400), avec le carré d'entrée, l'échelle et le décalage."""
+        canvas, scale, pad = self.letterbox(image_bgr)
         self.net.setInput(cv2.dnn.blobFromImage(canvas, 1 / 255.0, swapRB=True))
-        scale = (resized.shape[1] / width, resized.shape[0] / height)
-        return 1, _decode_yolo(self.net.forward(), scale, pad, self.score_threshold, self.nms_threshold)
+        return self.net.forward(), canvas, scale, pad
+
+    def detect(self, image_bgr: np.ndarray):
+        """Letterbox 640, inférence puis décodage et NMS."""
+        output, _, scale, pad = self.raw(image_bgr)
+        return 1, _decode_yolo(output, scale, pad, self.score_threshold, self.nms_threshold)
 
 
 def load_models(
@@ -170,19 +189,25 @@ def _check_frame(frame_bgr: np.ndarray) -> None:
     assert frame_bgr.shape[0] > 0 and frame_bgr.shape[1] > 0
 
 
+def _resize_for_detection(frame_bgr: np.ndarray, max_side: int = MAX_SIDE) -> np.ndarray:
+    """Réduit l'image pour que son grand côté ne dépasse pas max_side (jamais d'agrandissement)."""
+    if max_side <= 0:
+        raise ValueError("max_side doit être strictement positif.")
+    height, width = frame_bgr.shape[:2]
+    scale = min(1.0, max_side / max(height, width))
+    return cv2.resize(
+        frame_bgr, (max(1, round(width * scale)), max(1, round(height * scale))),
+        interpolation=cv2.INTER_AREA,
+    ) if scale < 1 else frame_bgr
+
+
 def detect_expressions(
     frame_bgr: np.ndarray, detector, classifier, *, max_side: int = MAX_SIDE,
 ) -> list[dict]:
     """Renvoie boîtes xyxy, score détecteur, classe et softmax pour une frame BGR."""
     _check_frame(frame_bgr)
-    if max_side <= 0:
-        raise ValueError("max_side doit être strictement positif.")
     height, width = frame_bgr.shape[:2]
-    scale = min(1.0, max_side / max(height, width))
-    resized = cv2.resize(
-        frame_bgr, (max(1, round(width * scale)), max(1, round(height * scale))),
-        interpolation=cv2.INTER_AREA,
-    ) if scale < 1 else frame_bgr
+    resized = _resize_for_detection(frame_bgr, max_side)
     detector.setInputSize((resized.shape[1], resized.shape[0]))
     _, faces = detector.detect(resized)  # x, y, w, h, 5 points faciaux, score.
     if faces is None or len(faces) == 0:
