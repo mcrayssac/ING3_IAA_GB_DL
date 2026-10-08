@@ -6,6 +6,7 @@
 2. Dans Colab : Fichier → Importer un notebook → `dist/projet.ipynb`, puis choisir un runtime GPU si un entraînement est prévu.
 3. Exécuter tout. La première cellule détecte Colab et demande les deux archives, puis les extrait dans `/content/fer2013-project`. Sur le Mac, la même cellule utilise le dépôt local sans rien demander.
 4. Tous les flags `RUN_*` sont à False : le notebook relit les résultats et les checkpoints. Pour un entraînement, activer un seul flag puis récupérer ses artefacts (sections ci-dessous).
+5. **Versions.** Sur Colab, la cellule de setup remplace les paquets OpenCV 4 fournis par Colab (`opencv-python`, `opencv-contrib-python`, `opencv-python-headless`) par `opencv-python-headless==5.0.0.93`, exigé par YOLO11n-face, puis s'arrête : faire Exécution > Redémarrer la session, puis Exécuter tout. Ne pas utiliser `pip install --force-reinstall`, qui met aussi numpy à jour. Keras est figé en 3.13.2 (`requirements.txt`), la version de Colab : un modèle enregistré avec Keras 3.15 ne se recharge pas en 3.13 (`GlorotUniform ... input_axes`).
 
 Les sections suivantes conservent les procédures et preuves historiques de chaque run officiel.
 

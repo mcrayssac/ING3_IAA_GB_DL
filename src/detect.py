@@ -104,6 +104,8 @@ class YoloFaceDetector:
 
     def __init__(self, path: str | Path, score_threshold: float, nms_threshold: float):
         """Charge le réseau une fois, avec le backend OpenCV comme YuNet."""
+        if int(cv2.__version__.split(".")[0]) < 5:  # OpenCV 4 ne lit pas cet ONNX à formes dynamiques.
+            raise RuntimeError(f"YOLO11n-face exige OpenCV >= 5 (installé : {cv2.__version__}).")
         self.net = cv2.dnn.readNetFromONNX(str(path))
         self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
         self.score_threshold, self.nms_threshold = score_threshold, nms_threshold
