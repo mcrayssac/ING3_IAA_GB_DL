@@ -1747,8 +1747,240 @@ if yolo_only_crops:
 # ces photos sont surtout des portraits NASA posés.
 
 # %% [markdown]
-# **Démonstration libre.** Pour la soutenance, `RUN_CUSTOM_IMAGE=True` applique le
-# même pipeline à une photo choisie : sur Colab, une fenêtre d'upload s'ouvre ; sur
+# ### Pipeline pas à pas
+#
+# Cette cellule suit une photo à travers chaque étape du pipeline final.
+#
+# 1. **Entrée.** Le grand côté de l'image est d'abord ramené à 1 280 px au plus.
+# 2. **Letterbox.** YOLO attend un carré de 640 × 640 : l'image est réduite sans
+#    déformation puis centrée, et les bandes vides sont remplies de gris (114).
+# 3. **Sortie brute.** YOLO11n-face prédit 8 400 boîtes à partir de trois
+#    grilles : 80 × 80 cases de 8 px pour les petits visages, 40 × 40 (16 px) et
+#    20 × 20 (32 px) pour les grands. Chaque case donne un centre, une taille et
+#    un score de visage.
+# 4. **Seuil.** Seules les prédictions de score ≥ 0,5 deviennent des candidats.
+# 5. **IoU et NMS.** Un même visage produit plusieurs candidats voisins. La NMS
+#    les parcourt par score décroissant et garde un candidat seulement si son IoU
+#    avec toutes les boîtes déjà gardées reste ≤ 0,45. La simulation ci-dessous
+#    est comparée à `cv2.dnn.NMSBoxes`.
+# 6. **Retour à l'image d'origine.** Les boîtes gardées sont remises à l'échelle
+#    et bornées à l'image.
+# 7. **Recadrage et prétraitement.** Chaque visage est découpé, puis passé par
+#    `preprocess_face` : niveaux de gris, 48 × 48, pixels dans [0, 1], comme les
+#    images FER2013.
+# 8. **CNN.** Pour un visage, nous affichons des feature maps : après la première
+#    convolution (48 × 48), puis après chacun des trois blocs (24 × 24, 12 × 12,
+#    6 × 6).
+# 9. **Softmax.** Les sept probabilités de chaque visage, puis l'image annotée.
+#
+# À la fin, la trace est comparée au résultat de `detect_expressions` : elle
+# montre donc le calcul réel du pipeline, pas une reconstruction.
+
+# %%
+from src.data import preprocess_face
+from src.detect import MAX_SIDE, YoloFaceDetector, _resize_for_detection, _yolo_candidates
+from src.evaluate import predict_faces
+
+TRACE_FACE = 1  # Numéro du visage dont on suit l'intérieur du CNN.
+TRACE_CANDIDATES = FACE_DEMO_DIR / "nasa/057_Eleven_International_Space_Station_crew_members_gather_for_a.jpg"
+TRACE_IMAGE = TRACE_CANDIDATES if TRACE_CANDIDATES.is_file() else FACE_DEMO_DIR / "apollo11.jpg"
+
+
+def xywh_iou(first, second):
+    """IoU de deux boîtes x, y, largeur, hauteur."""
+    width = max(0.0, min(first[0] + first[2], second[0] + second[2]) - max(first[0], second[0]))
+    height = max(0.0, min(first[1] + first[3], second[1] + second[3]) - max(first[1], second[1]))
+    union = first[2] * first[3] + second[2] * second[3] - width * height
+    return width * height / union if union else 0.0
+
+
+def show_row(images, titles, suptitle, size=2.2, cmap=None):
+    """Affiche une rangée d'images avec leurs titres, à hauteur proportionnelle à leur format."""
+    aspect = max(image.shape[0] / image.shape[1] for image in images)
+    fig, axes = plt.subplots(1, len(images), figsize=(size * len(images), size * aspect + 0.7), layout="constrained")
+    for axis, image, label in zip(np.atleast_1d(axes), images, titles):
+        axis.imshow(image, cmap=cmap)
+        axis.set_title(label, fontsize=8)
+        axis.axis("off")
+    fig.suptitle(suptitle)
+    plt.show()
+
+
+def draw_boxes(image_bgr, boxes, colors, labels=None, width=2):
+    """Copie RGB de l'image avec des boîtes x, y, w, h colorées."""
+    canvas = image_bgr.copy()
+    font = max(0.4, canvas.shape[1] / 1600)
+    for index, (box, color) in enumerate(zip(boxes, colors)):
+        x, y, w, h = (int(round(value)) for value in box)
+        cv2.rectangle(canvas, (x, y), (x + w, y + h), color, width)
+        if labels is not None and labels[index]:
+            cv2.putText(canvas, labels[index], (x, max(int(14 * font), y - 4)), cv2.FONT_HERSHEY_SIMPLEX,
+                        font, color, max(1, round(font)))
+    return cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+
+
+def trace_pipeline(frame_bgr, title):
+    """Montre chaque étape du pipeline final et vérifie qu'elle aboutit au résultat réel."""
+    detector, classifier = face_demo_models
+    expected = detect_expressions(frame_bgr, detector, classifier)
+    height, width = frame_bgr.shape[:2]
+    resized = _resize_for_detection(frame_bgr)
+    print(f"1. Entrée : {width} x {height} px, réduite à {resized.shape[1]} x {resized.shape[0]} px "
+          f"(grand côté ≤ {MAX_SIDE}).")
+    if isinstance(detector, YoloFaceDetector):
+        output, canvas, scale, pad = detector.raw(resized)
+        print(f"2. Letterbox : échelle {scale[0]:.4f}, bandes de {pad[0]} px (gauche/droite) et "
+              f"{pad[1]} px (haut/bas) dans un carré 640 x 640.")
+        show_row([cv2.cvtColor(resized, cv2.COLOR_BGR2RGB), cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)],
+                 [f"réduite {resized.shape[1]}x{resized.shape[0]}", "entrée YOLO 640x640"], f"{title} - étapes 1 et 2", size=5)
+        scores_all = output[0, 4]
+        grids = [(80, scores_all[:6400]), (40, scores_all[6400:8000]), (20, scores_all[8000:])]
+        print(f"3. Sortie brute : {output.shape} = {output.shape[2]} prédictions "
+              "(80x80 + 40x40 + 20x20 cases), score max par grille : "
+              + ", ".join(f"{side}x{side} → {values.max():.2f}" for side, values in grids))
+        fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), layout="constrained")
+        for axis, (side, values) in zip(axes, grids):
+            shown = axis.imshow(values.reshape(side, side), cmap="magma", vmin=0, vmax=1)
+            axis.set_title(f"grille {side}x{side} (cases de {640 // side} px)", fontsize=9)
+            axis.axis("off")
+        fig.colorbar(shown, ax=axes, shrink=0.8, label="score visage")
+        fig.suptitle("Étape 3 - score de visage prédit par chaque case")
+        plt.show()
+        boxes, scores = _yolo_candidates(output, scale, pad, detector.score_threshold)
+        print(f"4. Seuil {detector.score_threshold} : {output.shape[2]} prédictions → {len(boxes)} candidats.")
+        to_canvas = lambda box: [box[0] * scale[0] + pad[0], box[1] * scale[1] + pad[1],
+                                 box[2] * scale[0], box[3] * scale[1]]
+        order = np.argsort(-scores, kind="stable")
+        kept, decisions = [], []
+        for index in order:
+            overlaps = [(xywh_iou(boxes[index], boxes[other]), other) for other in kept]
+            iou, nearest = max(overlaps, default=(0.0, None))
+            keep = iou <= detector.nms_threshold
+            decisions.append({"candidat": int(index), "score": float(scores[index]),
+                              "boîte gardée la plus proche": "-" if nearest is None else int(nearest),
+                              "IoU": iou, "décision": "gardé" if keep else "supprimé"})
+            if keep:
+                kept.append(int(index))
+        opencv_keep = np.asarray(cv2.dnn.NMSBoxes(boxes.tolist(), scores.tolist(), detector.score_threshold,
+                                                  detector.nms_threshold), dtype=int).reshape(-1)
+        assert sorted(kept) == sorted(opencv_keep.tolist()), "La NMS simulée diffère d'OpenCV."
+        print(f"5. NMS (IoU > {detector.nms_threshold} = doublon) : {len(boxes)} candidats → {len(kept)} gardés, "
+              f"{len(boxes) - len(kept)} supprimés ; identique à cv2.dnn.NMSBoxes.")
+        nms_table = pd.DataFrame(decisions)
+        display(nms_table.head(15).round(3))
+        absorbed = nms_table[nms_table["décision"] == "supprimé"].groupby("boîte gardée la plus proche")["IoU"]
+        print("Doublons supprimés par boîte gardée (nombre, IoU médian) :",
+              {int(key): (len(values), round(float(values.median()), 2)) for key, values in absorbed})
+        ranked = sorted(decisions, key=lambda d: d["décision"] == "gardé")  # Gardées dessinées en dernier.
+        show_row([draw_boxes(canvas, [to_canvas(boxes[d["candidat"]]) for d in decisions], [(255, 160, 0)] * len(decisions)),
+                  draw_boxes(canvas, [to_canvas(boxes[d["candidat"]]) for d in ranked],
+                             [(0, 200, 0) if d["décision"] == "gardé" else (0, 0, 255) for d in ranked],
+                             [str(d["candidat"]) if d["décision"] == "gardé" else "" for d in ranked], width=1)],
+                 [f"{len(boxes)} candidats (score ≥ {detector.score_threshold})", "NMS : vert gardé, rouge supprimé"],
+                 "Étapes 4 et 5 - candidats puis NMS (dans le carré 640x640)", size=6)
+    else:
+        print("2 à 5. YuNet : FaceDetectorYN applique seuil et NMS en interne ; OpenCV n'expose pas "
+              "ses candidats avant NMS.")
+    print(f"6. Retour à l'image d'origine : {len(expected)} visage(s).")
+    final_boxes = [[x1, y1, x2 - x1, y2 - y1] for x1, y1, x2, y2 in (face["box_xyxy"] for face in expected)]
+    show_row([draw_boxes(frame_bgr, final_boxes, [(0, 200, 0)] * len(expected),
+                         [f"#{i}" for i in range(1, len(expected) + 1)], width=max(2, width // 600))],
+             ["boîtes finales numérotées"], "Étape 6 - boîtes dans l'image d'origine", size=9)
+    if not expected:
+        return expected
+    crops_rgb = [cv2.cvtColor(frame_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2RGB) for x1, y1, x2, y2 in
+                 (face["box_xyxy"] for face in expected)]
+    inputs = [preprocess_face(crop) for crop in crops_rgb]
+    print(f"7. Recadrages {[crop.shape[:2] for crop in crops_rgb]} → entrées CNN {inputs[0].shape}, "
+          f"{inputs[0].dtype}, pixels dans [{min(x.min() for x in inputs):.2f}, {max(x.max() for x in inputs):.2f}].")
+    show_row(crops_rgb, [f"#{i} {c.shape[1]}x{c.shape[0]}" for i, c in enumerate(crops_rgb, 1)],
+             "Étape 7a - visages recadrés", size=1.6)
+    show_row([x[..., 0] for x in inputs], [f"#{i} 48x48" for i in range(1, len(inputs) + 1)],
+             "Étape 7b - entrées du CNN (preprocess_face)", size=1.6, cmap="gray")
+    face_index = min(TRACE_FACE, len(inputs)) - 1
+    stages = [layer for layer in classifier.layers if isinstance(layer, tf.keras.layers.Conv2D)][:1] + [
+        layer for layer in classifier.layers if isinstance(layer, tf.keras.layers.MaxPooling2D)]
+    activations = tf.keras.Model(classifier.inputs, [layer.output for layer in stages])(
+        [inputs[face_index][None]], training=False)
+    print(f"8. CNN, visage #{face_index + 1} : " + " → ".join(
+        f"{layer.name} {tuple(value.shape[1:])}" for layer, value in zip(stages, activations)))
+    fig, axes = plt.subplots(len(stages), 9, figsize=(13, 1.6 * len(stages)), layout="constrained")
+    for row, (layer, value) in enumerate(zip(stages, activations)):
+        axes[row, 0].imshow(inputs[face_index][..., 0], cmap="gray")
+        axes[row, 0].set_title("entrée", fontsize=7)
+        for column in range(1, 9):
+            axes[row, column].imshow(value[0, ..., column - 1], cmap="viridis")
+            axes[row, column].set_title(f"{layer.name} #{column - 1}", fontsize=7)
+        for axis in axes[row]:
+            axis.axis("off")
+    fig.suptitle(f"Étape 8 - 8 premières feature maps par étape du CNN (visage #{face_index + 1})")
+    plt.show()
+    probabilities = predict_faces(classifier, crops_rgb)
+    for face, scores_row in zip(expected, probabilities):
+        assert CLASS_NAMES[int(scores_row.argmax())] == face["expression"]
+        np.testing.assert_allclose(scores_row.max(), face["expression_probability"], rtol=1e-5)
+    columns = min(4, len(expected))
+    rows = -(-len(expected) // columns)
+    fig, axes = plt.subplots(rows, columns, figsize=(3.2 * columns, 2.3 * rows), layout="constrained", squeeze=False)
+    for index, axis in enumerate(axes.flat):
+        if index >= len(expected):
+            axis.axis("off")
+            continue
+        bars = axis.barh(CLASS_NAMES, probabilities[index], color="lightgray")
+        bars[int(probabilities[index].argmax())].set_color("tab:green")
+        axis.set_xlim(0, 1)
+        axis.set_title(f"#{index + 1} {expected[index]['expression']} p={probabilities[index].max():.2f}", fontsize=9)
+        axis.tick_params(labelsize=7)
+    fig.suptitle("Étape 9 - probabilités softmax par visage")
+    plt.show()
+    show_row([cv2.cvtColor(annotate_faces(frame_bgr, expected), cv2.COLOR_BGR2RGB)], ["résultat final"],
+             f"{title} - résultat du pipeline (identique à detect_expressions)", size=9)
+    return expected
+
+
+if face_demo_models is not None and TRACE_IMAGE.is_file():
+    traced = trace_pipeline(cv2.imread(str(TRACE_IMAGE)), TRACE_IMAGE.name)
+else:
+    print("Trace indisponible : modèles ou photo absents (DOWNLOAD_FACE_DEMO / DOWNLOAD_NASA_PHOTOS).")
+
+# %% [markdown]
+# > *Nos observations (photo ISS « Eleven … crew members », exécution locale) :*
+# > - **Entrée et letterbox.** L'image de 1 920 × 1 280 px est réduite à
+# >   1 280 × 853, puis à moitié (échelle 0,5) dans le carré 640 × 640, avec
+# >   107 px de bande grise en haut et en bas.
+# > - **Trois échelles.** Les visages répondent sur les grilles fines : score
+# >   maximal 0,85 sur la grille 80 × 80 et 0,83 sur la 40 × 40. La grille 20 × 20,
+# >   faite pour les très grands visages, reste à 0,01 : ici, chaque visage
+# >   n'occupe qu'une quarantaine de pixels du carré.
+# > - **Seuil puis NMS.** Sur 8 400 prédictions, 99 dépassent 0,5. La NMS en garde
+# >   10 et en supprime 89 : chaque visage gardé avait 8 à 10 doublons, avec un IoU
+# >   médian de 0,97 à 0,99. Ce sont des boîtes presque identiques venant de cases
+# >   et d'échelles voisines. La simulation pas à pas donne exactement la sélection
+# >   de `cv2.dnn.NMSBoxes`.
+# > - **Visage manqué.** 10 visages sont trouvés pour 11 personnes : l'astronaute
+# >   allongée sur le côté, à gauche, n'est pas détectée.
+# > - **Recadrage.** Les visages mesurent de 71 à 149 px de large dans l'image
+# >   d'origine, puis sont tous réduits à 48 × 48 en niveaux de gris.
+# > - **CNN.** Après la première convolution, plusieurs cartes répondent aux
+# >   contours (yeux, bouche, bord du visage). Plus loin, les cartes deviennent
+# >   plus petites et plus éparses, et certaines restent nulles pour ce visage
+# >   (ReLU). À 6 × 6, seules quelques zones s'activent.
+# > - **Softmax.** Les sourires nets donnent happy avec p ≥ 0,89 (visages 2, 3, 4,
+# >   7). D'autres distributions sont plates : le visage 1 hésite entre neutral
+# >   (0,27), sad (0,25) et angry (0,24), et le 9, incliné, ne dépasse pas 0,23.
+# > - **Concordance.** Boîtes, classes et probabilités de la trace sont identiques
+# >   au résultat de `detect_expressions`.
+#
+# > *Nos hypothèses :* l'astronaute manquée a la tête tournée d'environ 90°, une
+# > pose rare dans les visages d'entraînement des détecteurs. Les distributions
+# > plates du CNN sur les visages inclinés ou peu expressifs rejoignent le banc
+# > d'essai : le classifieur a appris sur des visages droits de FER2013. Le rôle
+# > précis de chaque feature map n'est pas démontré ici : l'affichage reste une
+# > lecture qualitative.
+
+# %% [markdown]
+# **Démonstration libre.** Pour la soutenance, `RUN_CUSTOM_IMAGE=True` applique la
+# trace pas à pas ci-dessus à une photo choisie : sur Colab, une fenêtre d'upload s'ouvre ; sur
 # Mac, renseigner `CUSTOM_IMAGE_PATH`. Le flag reste à False pour qu'« Exécuter
 # tout » ne s'arrête pas sur une demande de fichier.
 
@@ -1767,4 +1999,4 @@ if RUN_CUSTOM_IMAGE and face_demo_models is not None:
         if frame_bgr is None:
             print(f"{name} : image illisible.")
             continue
-        show_face_pipeline(frame_bgr, name)
+        trace_pipeline(frame_bgr, name)
