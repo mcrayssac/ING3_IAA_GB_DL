@@ -96,3 +96,7 @@ Commande utile : .venv/bin/python scripts/nasa_photos.py --download
 Fait : YOLO11n-face devient le détecteur par défaut (code, CLI, notebook) ; décision justifiée par un tableau (80 photos : 401 contre 359 visages, 41 visages supplémentaires réels, 0 photo sans visage contre 3, environ 14 ms de plus par photo, 10 Mo contre 232 Ko) dans le notebook et le README. Appel YuNet du test de sensibilité rendu explicite (`detector_type="yunet"`).
 Reste : « Exécuter tout » sur Colab neuf, slides, répétition.
 Commande utile : .venv/bin/python -m src.detect --download-demo
+
+Fait : compatibilité Colab  - (1) OpenCV : Colab fournit OpenCV 4 (opencv-python, opencv-contrib-python) qui ne lit pas l'ONNX dynamique de YOLO11n-face ; la cellule de setup installe opencv-python-headless 5.0.0.93 seul puis demande un redémarrage, `YoloFaceDetector` refuse OpenCV < 5 avec un message clair et la phase 8 se replie sur YuNet. (2) Keras : S5.keras, enregistré en Keras 3.15.1, ne se relit pas en Keras 3.13.2 (Colab : `GlorotUniform ... input_axes`) ; `keras==3.13.2` figé dans requirements.txt et S5.keras réenregistré en 3.13.2 (poids identiques, validation 0,632691 / 1,009580). 42 tests et notebook complet réussis en Keras 3.13.2 ; fichiers de test inchangés.
+Reste : relancer « Exécuter tout » sur Colab avec le nouveau S5.keras ; slides, répétition.
+Commande utile : .venv/bin/python -m pip install -r requirements.txt (Keras 3.13.2) ; scripts/colab_bundle.sh

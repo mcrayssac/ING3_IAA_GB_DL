@@ -37,6 +37,22 @@ from pathlib import Path
 
 IN_COLAB = "google.colab" in sys.modules
 if IN_COLAB:
+    # Colab fournit OpenCV 4 (plusieurs paquets cv2) ; YOLO11n-face exige OpenCV 5, comme requirements.txt.
+    import subprocess
+    from importlib.metadata import PackageNotFoundError, version
+
+    def installed(name):
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            return None
+
+    opencv = {name: installed(name) for name in ("opencv-python", "opencv-contrib-python", "opencv-python-headless")}
+    if opencv != {"opencv-python": None, "opencv-contrib-python": None, "opencv-python-headless": "5.0.0.93"}:
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q",
+                        "opencv-python", "opencv-contrib-python", "opencv-python-headless"], check=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "opencv-python-headless==5.0.0.93"], check=True)
+        raise RuntimeError("OpenCV 5 installé : Exécution > Redémarrer la session, puis Exécuter tout.")
     COLAB_ROOT = Path("/content/fer2013-project")
     expected = {"projet-code.zip": COLAB_ROOT / "src", "fer2013.zip": COLAB_ROOT / "data/train"}
     missing = [name for name, folder in expected.items() if not folder.is_dir()]
@@ -1368,8 +1384,13 @@ if DOWNLOAD_FACE_DEMO:
     except (OSError, URLError) as error:
         print(f"Téléchargement indisponible : {error}. Transférer les fichiers manuellement.")
 if DETECTOR_PATHS[FACE_DETECTOR].is_file() and FINAL_MODEL_PATH.is_file():
-    face_demo_models = load_models(DETECTOR_PATHS[FACE_DETECTOR], FINAL_MODEL_PATH,
-                                   detector_type=FACE_DETECTOR)  # Une fois avant la boucle.
+    try:
+        face_demo_models = load_models(DETECTOR_PATHS[FACE_DETECTOR], FINAL_MODEL_PATH,
+                                       detector_type=FACE_DETECTOR)  # Une fois avant la boucle.
+    except RuntimeError as error:  # Par exemple YOLO11n-face avec OpenCV 4.
+        print(f"{FACE_DETECTOR} indisponible : {error} Repli sur YuNet.")
+        FACE_DETECTOR = "yunet"
+        face_demo_models = load_models(DETECTOR_PATHS["yunet"], FINAL_MODEL_PATH, detector_type="yunet")
     print(f"Pipeline final : {FACE_DETECTOR} + {FINAL_MODEL_ID} ({FINAL_MODEL_PATH.name}).")
 else:
     print(f"Démo indisponible : transférer {FINAL_MODEL_PATH.name} et télécharger le détecteur "
@@ -1459,7 +1480,8 @@ def box_iou(first, second):
 
 
 detector_rows = []
-if face_demo_models is not None and all(path.is_file() for path in DETECTOR_PATHS.values()):
+YOLO_USABLE = int(cv2.__version__.split(".")[0]) >= 5  # YOLO11n-face exige OpenCV 5.
+if face_demo_models is not None and YOLO_USABLE and all(path.is_file() for path in DETECTOR_PATHS.values()):
     face_classifier = face_demo_models[1]
     face_detectors = {name: load_models(path, FINAL_MODEL_PATH, detector_type=name)[0]
                       for name, path in DETECTOR_PATHS.items()}
@@ -1489,7 +1511,7 @@ if face_demo_models is not None and all(path.is_file() for path in DETECTOR_PATH
         })
     display(pd.DataFrame(detector_rows).round(3))
 else:
-    print("Comparaison indisponible : télécharger YuNet et YOLO11n-face (DOWNLOAD_FACE_DEMO=True).")
+    print("Comparaison indisponible : télécharger YuNet et YOLO11n-face (DOWNLOAD_FACE_DEMO=True), avec OpenCV 5.")
 
 # %% [markdown]
 # > *Nos observations (exécution locale du 8 octobre 2026, CPU) :*
@@ -1560,7 +1582,7 @@ print(f"{len(nasa_photos)} photos, licences : {nasa_photos['licence'].value_coun
 display(nasa_photos[["fichier", "source", "credit", "licence", "page_commons"]].head(4))
 nasa_present = [row for row in nasa_photos.to_dict("records") if (NASA_DIR / row["fichier"]).is_file()]
 nasa_rows, yolo_only_crops, nasa_runs = [], [], {}
-if face_demo_models is not None and len(nasa_present) == len(nasa_photos) and all(
+if face_demo_models is not None and YOLO_USABLE and len(nasa_present) == len(nasa_photos) and all(
         path.is_file() for path in DETECTOR_PATHS.values()):
     face_classifier = face_demo_models[1]
     face_detectors = {name: load_models(path, FINAL_MODEL_PATH, detector_type=name)[0]
