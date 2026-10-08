@@ -1,4 +1,4 @@
-"""Détection YuNet et classification par le modèle final sur des images BGR, sans entraînement."""
+"""Détection YuNet ou YOLO visages et classification par le modèle final sur des images BGR, sans entraînement."""
 
 import argparse
 import hashlib
@@ -24,6 +24,13 @@ DETECTOR_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552
 DETECTOR_LICENSE_URL = (
     "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/LICENSE"
 )
+# YOLO11n-face : export ONNX de akanametov/yolo-face publié par deepghs/yolo-face (Hugging Face).
+YOLO_PATH = Path("training/checkpoints/yolov11n-face.onnx")
+YOLO_URL = "https://huggingface.co/deepghs/yolo-face/resolve/main/yolov11n-face/model.onnx"
+YOLO_SHA256 = "7b4b3a098ac15a5ccd0d048e7949b63275e4a9657c374ad9e4730632d9f01829"
+YOLO_SCORE_THRESHOLD = 0.5
+YOLO_NMS_THRESHOLD = 0.45
+YOLO_INPUT = 640
 SCORE_THRESHOLD = 0.9
 NMS_THRESHOLD = 0.3
 TOP_K = 5000
@@ -57,36 +64,96 @@ def _download(url: str, path: Path) -> None:
 
 def download_demo_assets(
     detector_path: str | Path = DETECTOR_PATH, demo_dir: str | Path = DEMO_DIR,
+    yolo_path: str | Path | None = None,
 ) -> None:
-    """Télécharge YuNet, sa licence et trois photos NASA dans des dossiers ignorés."""
+    """Télécharge YuNet, sa licence, trois photos NASA et, si demandé, YOLO11n-face."""
     detector_path, demo_dir = Path(detector_path), Path(demo_dir)
     _download(DETECTOR_URL, detector_path)
     assert hashlib.sha256(detector_path.read_bytes()).hexdigest() == DETECTOR_SHA256
     _download(DETECTOR_LICENSE_URL, detector_path.with_suffix(".LICENSE"))
+    if yolo_path is not None:
+        _download(YOLO_URL, Path(yolo_path))
+        assert hashlib.sha256(Path(yolo_path).read_bytes()).hexdigest() == YOLO_SHA256
     for name, url in DEMO_IMAGES.items():
         _download(url, demo_dir / name)
 
 
+def _decode_yolo(
+    output: np.ndarray, scale: tuple[float, float], pad: tuple[int, int],
+    score_threshold: float = YOLO_SCORE_THRESHOLD, nms_threshold: float = YOLO_NMS_THRESHOLD,
+) -> np.ndarray:
+    """Convertit la sortie YOLO (1, 5, N) en lignes YuNet : x, y, w, h, 10 points nuls, score."""
+    predictions = np.asarray(output, dtype=np.float32).reshape(5, -1).T  # cx, cy, w, h, score.
+    predictions = predictions[predictions[:, 4] >= score_threshold]
+    boxes = np.column_stack((
+        (predictions[:, 0] - predictions[:, 2] / 2 - pad[0]) / scale[0],
+        (predictions[:, 1] - predictions[:, 3] / 2 - pad[1]) / scale[1],
+        predictions[:, 2] / scale[0], predictions[:, 3] / scale[1],
+    )) if len(predictions) else np.empty((0, 4), np.float32)
+    keep = np.asarray(cv2.dnn.NMSBoxes(
+        boxes.tolist(), predictions[:, 4].tolist(), score_threshold, nms_threshold,
+    ), dtype=int).reshape(-1)
+    faces = np.zeros((len(keep), 15), dtype=np.float32)
+    faces[:, :4] = boxes[keep]
+    faces[:, 14] = predictions[keep, 4]
+    return faces
+
+
+class YoloFaceDetector:
+    """YOLO visages (ONNX, OpenCV DNN) avec l'interface de cv2.FaceDetectorYN utilisée ici."""
+
+    def __init__(self, path: str | Path, score_threshold: float, nms_threshold: float):
+        """Charge le réseau une fois, avec le backend OpenCV comme YuNet."""
+        self.net = cv2.dnn.readNetFromONNX(str(path))
+        self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        self.score_threshold, self.nms_threshold = score_threshold, nms_threshold
+
+    def setInputSize(self, size) -> None:
+        """Sans effet : le letterbox ramène toujours l'image à 640 x 640."""
+
+    def detect(self, image_bgr: np.ndarray):
+        """Letterbox 640 (bandes grises 114), inférence puis décodage et NMS."""
+        height, width = image_bgr.shape[:2]
+        ratio = YOLO_INPUT / max(height, width)
+        resized = cv2.resize(image_bgr, (max(1, round(width * ratio)), max(1, round(height * ratio))))
+        pad = ((YOLO_INPUT - resized.shape[1]) // 2, (YOLO_INPUT - resized.shape[0]) // 2)
+        canvas = np.full((YOLO_INPUT, YOLO_INPUT, 3), 114, dtype=np.uint8)
+        canvas[pad[1]:pad[1] + resized.shape[0], pad[0]:pad[0] + resized.shape[1]] = resized
+        self.net.setInput(cv2.dnn.blobFromImage(canvas, 1 / 255.0, swapRB=True))
+        scale = (resized.shape[1] / width, resized.shape[0] / height)
+        return 1, _decode_yolo(self.net.forward(), scale, pad, self.score_threshold, self.nms_threshold)
+
+
 def load_models(
-    detector_path: str | Path = DETECTOR_PATH, classifier_path: str | Path = CLASSIFIER_PATH,
-    *, score_threshold: float = SCORE_THRESHOLD, nms_threshold: float = NMS_THRESHOLD,
-    top_k: int = TOP_K,
+    detector_path: str | Path | None = None, classifier_path: str | Path = CLASSIFIER_PATH,
+    *, detector_type: str = "yolo", score_threshold: float | None = None,
+    nms_threshold: float | None = None, top_k: int = TOP_K,
 ):
-    """Charge une fois YuNet et le classifieur final puis vérifie le contrat du classifieur."""
+    """Charge une fois le détecteur choisi (YOLO11n-face par défaut, ou YuNet) et le classifieur final."""
+    if detector_type not in ("yunet", "yolo"):
+        raise ValueError("detector_type doit valoir 'yunet' ou 'yolo'.")
+    yolo = detector_type == "yolo"
+    detector_path = detector_path or (YOLO_PATH if yolo else DETECTOR_PATH)
+    score_threshold = (YOLO_SCORE_THRESHOLD if yolo else SCORE_THRESHOLD) if score_threshold is None else score_threshold
+    nms_threshold = (YOLO_NMS_THRESHOLD if yolo else NMS_THRESHOLD) if nms_threshold is None else nms_threshold
     for path in (detector_path, classifier_path):
         if not Path(path).is_file():
             raise FileNotFoundError(
                 f"Poids absents : {path}. Télécharger YuNet avec --download-demo "
                 "et transférer le checkpoint du modèle final depuis les artefacts sauvegardés."
             )
-    assert hashlib.sha256(Path(detector_path).read_bytes()).hexdigest() == DETECTOR_SHA256
+    expected_sha256 = YOLO_SHA256 if yolo else DETECTOR_SHA256
+    assert hashlib.sha256(Path(detector_path).read_bytes()).hexdigest() == expected_sha256
     if not (0 <= score_threshold <= 1 and 0 <= nms_threshold <= 1 and top_k > 0):
         raise ValueError("Seuils dans [0, 1] et top_k strictement positif requis.")
-    # Backend OpenCV explicite : le modèle 2023 a des dimensions ONNX fixes.
-    detector = cv2.FaceDetectorYN.create(
-        str(detector_path), "", (320, 320), score_threshold, nms_threshold, top_k,
-        cv2.dnn.DNN_BACKEND_OPENCV, cv2.dnn.DNN_TARGET_CPU,
-    )
+    if yolo:
+        detector = YoloFaceDetector(detector_path, score_threshold, nms_threshold)
+    else:
+        # Backend OpenCV explicite : le modèle 2023 a des dimensions ONNX fixes.
+        detector = cv2.FaceDetectorYN.create(
+            str(detector_path), "", (320, 320), score_threshold, nms_threshold, top_k,
+            cv2.dnn.DNN_BACKEND_OPENCV, cv2.dnn.DNN_TARGET_CPU,
+        )
     classifier = tf.keras.models.load_model(classifier_path, compile=False)
     assert classifier.input_shape == (None, *IMAGE_SIZE, CHANNELS)
     assert K == len(CLASS_NAMES) == classifier.layers[-1].units == classifier.output_shape[-1]
@@ -190,13 +257,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("images", nargs="*", type=Path)
     parser.add_argument("--download-demo", action="store_true")
-    parser.add_argument("--detector", type=Path, default=DETECTOR_PATH)
+    parser.add_argument("--detector-type", choices=("yolo", "yunet"), default="yolo")
+    parser.add_argument("--detector", type=Path, help="Poids du détecteur (défaut selon --detector-type).")
     parser.add_argument("--classifier", type=Path, default=CLASSIFIER_PATH)
     parser.add_argument("--output-dir", type=Path, default=DEMO_DIR / "annotated")
     args = parser.parse_args()
+    yolo = args.detector_type == "yolo"
     if args.download_demo:
-        download_demo_assets(args.detector)
-    detector, classifier = load_models(args.detector, args.classifier)
+        download_demo_assets(DETECTOR_PATH if yolo else args.detector or DETECTOR_PATH, DEMO_DIR,
+                             (args.detector or YOLO_PATH) if yolo else None)
+    detector, classifier = load_models(args.detector, args.classifier, detector_type=args.detector_type)
     paths = args.images or [DEMO_DIR / name for name in DEMO_IMAGES]
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for path in paths:
@@ -205,7 +275,7 @@ def main() -> None:
             raise FileNotFoundError(f"Image absente ou illisible : {path}. Utiliser --download-demo.")
         _check_frame(frame)
         results = detect_expressions(frame, detector, classifier)
-        output = args.output_dir / f"{path.stem}_annotated.png"
+        output = args.output_dir / f"{path.stem}_{args.detector_type}_annotated.png"
         assert cv2.imwrite(str(output), annotate_faces(frame, results))
         payload = {"image": str(path), "results": results}
         output.with_suffix(".json").write_text(

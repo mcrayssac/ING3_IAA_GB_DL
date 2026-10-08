@@ -33,6 +33,8 @@ Phase 6 : référence commune C0 ; E1 Dense 128 → 64, E2 Dropout 0,3 après De
 - Seconde évaluation déclarée du test (modèle final S5, approfondissement) : `training/logs/test_evaluation_deepdive.json`, même garde. Le checkpoint final est copié en `training/checkpoints/S5.keras`.
 - Approfondissement CNN : `src/research.py` ; un JSON par run et par seed, `ladder.json` (décisions de l'échelle) et `summary.csv` dans `training/research/` (versionnés) ; checkpoints dans `training/checkpoints/research/` (ignorés). Sélection : val_loss moyenne sur les seeds 42, 43 et 44, validation uniquement.
 - Démonstration multi-visages : `src/detect.py` (YuNet OpenCV + A1), `tests/test_detection.py` pour les cas limites. Extension nécessaire, sans nouvelle dépendance ni modification du CNN.
+- YOLO11n-face ONNX (`training/checkpoints/yolov11n-face.onnx`, SHA256 figé dans `src/detect.py`), **détecteur par défaut** du pipeline final depuis le banc d'essai sur 80 photos NASA ; YuNet reste disponible (`FACE_DETECTOR`, `--detector-type yunet`, `load_models(detector_type="yunet")`).
+- Banc d'essai des détecteurs : `docs/nasa_photos.csv` (80 photos NASA du domaine public, versionné, avec licence et crédit) produit par `scripts/nasa_photos.py` ; images dans `data/demo/nasa/` (ignoré).
 - YuNet ONNX et sa licence : `training/checkpoints/` ; photos NASA et annotations de démo : `data/demo/`. Tous ignorés par Git ; provenance, téléchargement et observations dans le notebook.
 
 ## Exécution

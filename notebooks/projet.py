@@ -20,7 +20,7 @@
 # | Phase 7 - augmentation A1 | 7 | `src/train.py` | `RUN_A1` |
 # | Approfondissement CNN | 6 | `src/research.py` | `RUN_RESEARCH` |
 # | Test officiel | 5 et 6 | `src/evaluate.py` | `RUN_TEST` |
-# | Phase 8 - pipeline final multi-visages | 8 et démonstration | `src/detect.py` | `DOWNLOAD_FACE_DEMO`, `RUN_CUSTOM_IMAGE` |
+# | Phase 8 - pipeline final multi-visages | 8 et démonstration | `src/detect.py` | `FACE_DETECTOR`, `DOWNLOAD_FACE_DEMO`, `DOWNLOAD_NASA_PHOTOS`, `RUN_CUSTOM_IMAGE` |
 #
 # Avec tous les flags à False, le notebook n'entraîne rien : il relit les
 # résultats sauvegardés dans `training/logs/` et les checkpoints de
@@ -1270,15 +1270,34 @@ for run_id, result_name in TEST_RESULTS.items():
 #
 # **Choix du détecteur.** Les [classes COCO](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml)
 # incluent person mais pas face : une boîte de personne ne fournit pas un crop facial.
-# Nous retenons [YuNet, publié dans OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet),
-# un détecteur spécialisé pré-entraîné sur des visages, exécuté par FaceDetectorYN.
-# Il évite une dépendance YOLO/PyTorch supplémentaire. Ses poids ONNX
+# Il faut donc un détecteur entraîné sur des visages. Deux sont disponibles, sans
+# nouvelle dépendance : **YOLO11n-face (par défaut)** et YuNet. La décision et le
+# tableau qui la justifie sont donnés après le banc d'essai sur 80 photos NASA
+# (fin de cette section).
+#
+# **YuNet** ([OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet))
+# est un détecteur léger pré-entraîné sur des visages, exécuté par FaceDetectorYN.
+# C'était le premier choix de la phase 8. Ses poids ONNX
 # face_detection_yunet_2023mar.onnx (232 589 octets) sont sous
 # [licence MIT, Shiqi Yu](https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE).
 # Le téléchargement officiel et l'empreinte SHA256 attendue sont dans src/detect.py ;
 # la licence est conservée à côté des poids, tous deux ignorés par Git.
 # Le backend OpenCV est explicite pour accepter les tailles variables avec ce modèle
 # à dimensions ONNX fixes, notamment sous OpenCV 5. Aucune nouvelle dépendance.
+#
+# **YOLO11n-face, détecteur par défaut** (`FACE_DETECTOR = "yolo"`), est un vrai
+# YOLO entraîné pour détecter des visages, contrairement au YOLO COCO.
+# Nous utilisons l'export ONNX publié par
+# [deepghs/yolo-face](https://huggingface.co/deepghs/yolo-face) (licence
+# « model-distribution-disclaimer-license »), à partir de
+# [akanametov/yolo-face](https://github.com/akanametov/yolo-face) (GPL-3.0,
+# dérivé d'Ultralytics). La fiche annonce 2,59 M paramètres, une précision de
+# 0,852, un rappel de 0,581 et un mAP50 de 0,665. Le réseau tourne lui aussi dans
+# OpenCV DNN : image redimensionnée et centrée dans un carré 640 x 640 (bandes
+# grises), sortie `(1, 5, 8400)` (centre, taille, score), seuil 0,5 puis NMS à
+# 0,45 (`src/detect.py`). Un adaptateur lui donne la même interface que YuNet :
+# extraction, `preprocess_face` et classification restent identiques. Les poids
+# (10 Mo) sont téléchargés avec `DOWNLOAD_FACE_DEMO=True` et ignorés par Git.
 #
 # **Notions à l'oral.**
 # - Classification : une classe pour un crop déjà extrait. Détection : localisation
@@ -1305,7 +1324,7 @@ for run_id, result_name in TEST_RESULTS.items():
 #   Nous n'avons aucune boîte de référence pour ces photos : aucune mesure
 #   de précision, rappel ou mAP du détecteur n'est calculée.
 #
-# **Pipeline réel.** Image BGR uint8 → YuNet (grand côté limité à 1280) → boîtes
+# **Pipeline réel.** Image BGR uint8 → détecteur (grand côté limité à 1280) → boîtes
 # remises à l'échelle originale et bornées → crops BGR convertis en RGB →
 # predict_faces → unique preprocess_face (48×48×1, float32, /255) → batch du modèle final →
 # résultats structurés → annotation séparée. Zéro visage renvoie une liste vide ;
@@ -1334,22 +1353,27 @@ from src.detect import (
     DEMO_IMAGES, annotate_faces, detect_expressions, download_demo_assets, load_models,
 )
 
+FACE_DETECTOR = "yolo"  # Détecteur du pipeline : "yolo" (YOLO11n-face, défaut) ou "yunet".
 DOWNLOAD_FACE_DEMO = False
 FACE_DEMO_DIR = PROJECT_ROOT / "data/demo"
-YUNET_PATH = PROJECT_ROOT / "training/checkpoints/face_detection_yunet_2023mar.onnx"
+DETECTOR_PATHS = {
+    "yunet": PROJECT_ROOT / "training/checkpoints/face_detection_yunet_2023mar.onnx",
+    "yolo": PROJECT_ROOT / "training/checkpoints/yolov11n-face.onnx",
+}
 FINAL_MODEL_PATH = PROJECT_ROOT / f"training/checkpoints/{FINAL_MODEL_ID}.keras"
 face_demo_models = None
 if DOWNLOAD_FACE_DEMO:
     try:
-        download_demo_assets(YUNET_PATH, FACE_DEMO_DIR)
+        download_demo_assets(DETECTOR_PATHS["yunet"], FACE_DEMO_DIR, DETECTOR_PATHS["yolo"])
     except (OSError, URLError) as error:
         print(f"Téléchargement indisponible : {error}. Transférer les fichiers manuellement.")
-if YUNET_PATH.is_file() and FINAL_MODEL_PATH.is_file():
-    face_demo_models = load_models(YUNET_PATH, FINAL_MODEL_PATH)  # Une fois avant la boucle.
-    print(f"Pipeline final : YuNet + {FINAL_MODEL_ID} ({FINAL_MODEL_PATH.name}).")
+if DETECTOR_PATHS[FACE_DETECTOR].is_file() and FINAL_MODEL_PATH.is_file():
+    face_demo_models = load_models(DETECTOR_PATHS[FACE_DETECTOR], FINAL_MODEL_PATH,
+                                   detector_type=FACE_DETECTOR)  # Une fois avant la boucle.
+    print(f"Pipeline final : {FACE_DETECTOR} + {FINAL_MODEL_ID} ({FINAL_MODEL_PATH.name}).")
 else:
-    print(f"Démo indisponible : transférer {FINAL_MODEL_PATH.name} et télécharger YuNet "
-          "(DOWNLOAD_FACE_DEMO=True). Aucun entraînement ni test officiel lancé.")
+    print(f"Démo indisponible : transférer {FINAL_MODEL_PATH.name} et télécharger le détecteur "
+          f"{FACE_DETECTOR} (DOWNLOAD_FACE_DEMO=True). Aucun entraînement ni test officiel lancé.")
 
 
 def show_face_pipeline(frame_bgr, title, output_path=None):
@@ -1362,7 +1386,7 @@ def show_face_pipeline(frame_bgr, title, output_path=None):
     if output_path is not None:
         assert cv2.imwrite(str(output_path), annotated_bgr)
     print(f"{title} : {len(face_results)} visage(s). "
-          "p = softmax de l'expression ; face score = score YuNet.")
+          f"p = softmax de l'expression ; face score = score du détecteur ({FACE_DETECTOR}).")
     if face_results:
         display(pd.DataFrame(face_results))
     else:
@@ -1388,12 +1412,13 @@ if face_demo_models is not None:
 
 # %% [markdown]
 # **Observations locales.** Pipeline exécuté avec OpenCV 5.0.0 et TensorFlow
-# 2.21.0 ; trois visages retenus sur chacune des trois photos, avec des scores
-# YuNet d'environ 0,93 à 0,95. Les boîtes inspectées entourent les visages visibles.
-# Avec S5 (modèle final, 8 octobre) : Apollo 11 donne deux happy (p≈1,00/0,94) et
-# un neutral (p≈0,83) ; Apollo 12 trois happy (p≈0,99–1,00) ; Apollo 13 trois happy
-# (p≈0,74–1,00). A1 (7 octobre) prédisait les mêmes expressions, avec par exemple
-# p≈0,70 pour le neutral d'Apollo 11.
+# 2.21.0, YOLO11n-face et S5 ; trois visages retenus sur chacune des trois photos,
+# avec des scores YOLO d'environ 0,82 à 0,87. Les boîtes inspectées entourent les
+# visages visibles. Apollo 11 donne un neutral (p≈0,79) et deux happy (p≈1,00 et
+# 0,96) ; Apollo 12 trois happy (p≈1,00) ; Apollo 13 trois happy (p≈0,89 à 1,00).
+# Avec YuNet, les expressions prédites sont les mêmes (comparaison ci-dessous) ;
+# A1 (7 octobre) prédisait aussi les mêmes, avec par exemple p≈0,70 pour le
+# neutral d'Apollo 11.
 # Les sourires visibles rendent ces sorties plausibles, sans labels d'expression
 # de référence. Les textes sont adaptés à la résolution pour rester lisibles.
 # Ces portraits posés, essentiellement frontaux, de trois hommes adultes chacun
@@ -1409,6 +1434,295 @@ if face_demo_models is not None:
 # class_id, expression, expression_probability, dans l'ordre des détections.
 # Aucun identifiant de suivi temporel : le numéro dessiné dépend de chaque frame.
 # Réutiliser ces fonctions sans recharger les modèles et sans réentraîner le classifieur.
+
+# %% [markdown]
+# **Comparaison YuNet / YOLO11n-face.** Les deux détecteurs sont appliqués aux trois
+# photos de démo avec le même classifieur final. Pour chaque visage trouvé par
+# YuNet, nous cherchons la boîte YOLO qui le recouvre le plus (IoU). Une boîte
+# YOLO avec un IoU d'au moins 0,5 compte comme le même visage, et nous vérifions
+# alors si l'expression prédite est identique. Le temps mesuré comprend la
+# détection et la classification (moyenne de 3 passages après un échauffement).
+# Sans boîtes de référence, cette comparaison ne mesure ni précision, ni rappel,
+# ni mAP.
+
+# %%
+import time
+
+
+def box_iou(first, second):
+    """IoU de deux boîtes [x1, y1, x2, y2], x2 et y2 exclusifs."""
+    width = max(0, min(first[2], second[2]) - max(first[0], second[0]))
+    height = max(0, min(first[3], second[3]) - max(first[1], second[1]))
+    union = ((first[2] - first[0]) * (first[3] - first[1])
+             + (second[2] - second[0]) * (second[3] - second[1]) - width * height)
+    return width * height / union if union else 0.0
+
+
+detector_rows = []
+if face_demo_models is not None and all(path.is_file() for path in DETECTOR_PATHS.values()):
+    face_classifier = face_demo_models[1]
+    face_detectors = {name: load_models(path, FINAL_MODEL_PATH, detector_type=name)[0]
+                      for name, path in DETECTOR_PATHS.items()}
+    for image_name in DEMO_IMAGES:
+        frame_bgr = cv2.imread(str(FACE_DEMO_DIR / image_name))
+        if frame_bgr is None:
+            continue
+        runs = {}
+        for name, detector in face_detectors.items():
+            detect_expressions(frame_bgr, detector, face_classifier)  # Échauffement.
+            start = time.perf_counter()
+            for _ in range(3):
+                found = detect_expressions(frame_bgr, detector, face_classifier)
+            runs[name] = (found, (time.perf_counter() - start) / 3 * 1000)
+        yunet_found, yolo_found = runs["yunet"][0], runs["yolo"][0]
+        matches = [max(((box_iou(face["box_xyxy"], other["box_xyxy"]), other) for other in yolo_found),
+                       key=lambda match: match[0], default=(0.0, None)) for face in yunet_found]
+        same = sum(iou >= 0.5 and other["expression"] == face["expression"]
+                   for face, (iou, other) in zip(yunet_found, matches))
+        detector_rows.append({
+            "photo": image_name, "visages YuNet": len(yunet_found), "visages YOLO": len(yolo_found),
+            "score YuNet": np.mean([face["detector_score"] for face in yunet_found]),
+            "score YOLO": np.mean([face["detector_score"] for face in yolo_found]),
+            "temps YuNet (ms)": runs["yunet"][1], "temps YOLO (ms)": runs["yolo"][1],
+            "IoU moyen": np.mean([iou for iou, _ in matches]),
+            "expressions identiques": f"{same}/{len(yunet_found)}",
+        })
+    display(pd.DataFrame(detector_rows).round(3))
+else:
+    print("Comparaison indisponible : télécharger YuNet et YOLO11n-face (DOWNLOAD_FACE_DEMO=True).")
+
+# %% [markdown]
+# > *Nos observations (exécution locale du 8 octobre 2026, CPU) :*
+# > - Les deux détecteurs trouvent 3 visages sur chaque photo. Leurs boîtes se
+# >   recouvrent fortement (IoU moyen de 0,86 à 0,91), et S5 prédit la même
+# >   expression sur les 9 visages appariés.
+# > - Les scores ne se comparent pas directement. YuNet donne environ 0,93 à 0,94
+# >   et YOLO11n-face 0,84 à 0,87, chacun avec son propre étalonnage et son propre
+# >   seuil (0,9 contre 0,5).
+# > - YOLO11n-face ajoute environ 11 à 16 ms par photo selon l'exécution
+# >   (classification comprise). Ses poids pèsent 10 Mo, contre 232 Ko pour YuNet.
+#
+# > *Ce que ces trois photos ne disent pas :* sur ces portraits posés et frontaux
+# > (9 visages), les deux détecteurs sont équivalents et YuNet est le plus rapide.
+# > Ils ne testent ni les petits visages, ni les profils, ni les occlusions, et les
+# > temps varient d'une exécution à l'autre. Le banc d'essai suivant, sur 80 photos,
+# > sert à départager les détecteurs.
+
+# %% [markdown]
+# ### Banc d'essai des détecteurs sur 80 photos NASA
+#
+# Les trois photos Apollo sont des portraits posés et frontaux. Pour tester les
+# détecteurs dans des conditions plus variées, nous utilisons **80 photos NASA**
+# sélectionnées sur Wikimedia Commons par `scripts/nasa_photos.py` :
+# - 50 portraits officiels d'expéditions de l'ISS (de l'expédition 16, en 2007, à 2026) ;
+# - 20 photos de groupe prises dans l'ISS ou dans la capsule Dragon ;
+# - 10 photos de l'équipage Artemis II.
+#
+# Chaque photo porte la licence « Public domain » sur Commons, avec un crédit
+# NASA (JSC ou KSC). Pour chacune, `docs/nasa_photos.csv` donne le titre, la
+# page Commons, l'auteur, le crédit, la licence et les conditions d'usage. Usage
+# pédagogique selon les
+# [règles NASA](https://www.nasa.gov/nasa-brand-center/images-and-media/), sans
+# soutien implicite de la NASA. Les images (vignettes de 1 920 px) restent dans
+# `data/demo/nasa/`, ignoré par Git (`DOWNLOAD_NASA_PHOTOS=True` ou
+# `python scripts/nasa_photos.py --download`).
+#
+# Sans boîtes de référence, nous comptons les visages trouvés par chaque
+# détecteur, puis nous les apparions (IoU ≥ 0,5). Les visages vus par un seul
+# détecteur sont ensuite inspectés à l'œil.
+
+# %%
+import csv
+
+
+def match_faces(first, second, threshold=0.5):
+    """Apparie les boîtes de deux détecteurs, la meilleure IoU d'abord, chaque boîte une fois."""
+    pairs, used = [], set()
+    for face in sorted(first, key=lambda found: -found["detector_score"]):
+        best = max(((box_iou(face["box_xyxy"], other["box_xyxy"]), index)
+                    for index, other in enumerate(second) if index not in used), default=(0.0, None))
+        if best[0] >= threshold:
+            used.add(best[1])
+            pairs.append((face, second[best[1]], best[0]))
+    return pairs, [other for index, other in enumerate(second) if index not in used]
+
+
+NASA_MANIFEST = PROJECT_ROOT / "docs/nasa_photos.csv"
+NASA_DIR = PROJECT_ROOT / "data/demo/nasa"
+DOWNLOAD_NASA_PHOTOS = False  # Télécharge les vignettes absentes (environ 50 Mo), par exemple sur Colab.
+if DOWNLOAD_NASA_PHOTOS:
+    import subprocess
+
+    subprocess.run([sys.executable, "scripts/nasa_photos.py", "--download"], cwd=PROJECT_ROOT, check=True)
+with NASA_MANIFEST.open(newline="", encoding="utf-8") as stream:
+    nasa_photos = pd.DataFrame(csv.DictReader(stream))
+print(f"{len(nasa_photos)} photos, licences : {nasa_photos['licence'].value_counts().to_dict()}")
+display(nasa_photos[["fichier", "source", "credit", "licence", "page_commons"]].head(4))
+nasa_present = [row for row in nasa_photos.to_dict("records") if (NASA_DIR / row["fichier"]).is_file()]
+nasa_rows, yolo_only_crops, nasa_runs = [], [], {}
+if face_demo_models is not None and len(nasa_present) == len(nasa_photos) and all(
+        path.is_file() for path in DETECTOR_PATHS.values()):
+    face_classifier = face_demo_models[1]
+    face_detectors = {name: load_models(path, FINAL_MODEL_PATH, detector_type=name)[0]
+                      for name, path in DETECTOR_PATHS.items()}
+    for row in nasa_present:
+        frame_bgr = cv2.imread(str(NASA_DIR / row["fichier"]))
+        runs = {}
+        for name, detector in face_detectors.items():
+            start = time.perf_counter()
+            runs[name] = (detect_expressions(frame_bgr, detector, face_classifier),
+                          (time.perf_counter() - start) * 1000)
+        nasa_runs[row["fichier"]] = (frame_bgr, runs["yunet"][0], runs["yolo"][0])
+        pairs, yolo_only = match_faces(runs["yunet"][0], runs["yolo"][0])
+        yolo_only_crops += [frame_bgr[face["box_xyxy"][1]:face["box_xyxy"][3],
+                                      face["box_xyxy"][0]:face["box_xyxy"][2]] for face in yolo_only]
+        nasa_rows.append({
+            "fichier": row["fichier"], "source": row["source"],
+            "visages YuNet": len(runs["yunet"][0]), "visages YOLO": len(runs["yolo"][0]),
+            "appariés": len(pairs), "YuNet seul": len(runs["yunet"][0]) - len(pairs),
+            "YOLO seul": len(yolo_only), "même expression": sum(a["expression"] == b["expression"] for a, b, _ in pairs),
+            "IoU": np.mean([iou for _, _, iou in pairs]) if pairs else np.nan,
+            "temps YuNet (ms)": runs["yunet"][1], "temps YOLO (ms)": runs["yolo"][1],
+        })
+    nasa_bench = pd.DataFrame(nasa_rows)
+    counts = ["visages YuNet", "visages YOLO", "appariés", "YuNet seul", "YOLO seul", "même expression"]
+    by_source = nasa_bench.groupby("source")[counts].sum()
+    by_source.loc["total"] = by_source.sum()
+    by_source["photos"] = list(nasa_bench["source"].value_counts().reindex(by_source.index[:-1])) + [len(nasa_bench)]
+    display(by_source)
+    print(f"IoU moyen des paires : {nasa_bench['IoU'].mean():.3f} ; temps moyen par photo : "
+          f"YuNet {nasa_bench['temps YuNet (ms)'].mean():.1f} ms, YOLO {nasa_bench['temps YOLO (ms)'].mean():.1f} ms "
+          "(détection et classification).")
+    print(f"Photos sans aucun visage : YuNet {int((nasa_bench['visages YuNet'] == 0).sum())}, "
+          f"YOLO {int((nasa_bench['visages YOLO'] == 0).sum())}. Photos où YOLO trouve des visages de plus : "
+          f"{int((nasa_bench['YOLO seul'] > 0).sum())}.")
+    expressions = pd.DataFrame({name: pd.Series([face["expression"] for _, yunet, yolo in nasa_runs.values()
+                                                 for face in (yunet if name == "YuNet" else yolo)]).value_counts()
+                                for name in ("YuNet", "YOLO")}).fillna(0).astype(int)
+    print("Expressions prédites par le modèle final sur les visages détectés :")
+    display(expressions)
+else:
+    print("Banc d'essai indisponible : télécharger les photos (python scripts/nasa_photos.py --download) "
+          "et les deux détecteurs (DOWNLOAD_FACE_DEMO=True).")
+
+# %% [markdown]
+# **Sensibilité au seuil de YuNet.** Le seuil de 0,9 de YuNet est plus strict que
+# celui de YOLO (0,5). Nous relançons YuNet à 0,7 puis 0,5 pour voir quelle part
+# de l'écart vient de ce réglage.
+
+# %%
+def show_crops(crops, title, columns=10, size=96):
+    """Affiche des recadrages BGR en grille pour l'inspection visuelle."""
+    grid = np.full((size * -(-len(crops) // columns), size * columns, 3), 255, np.uint8)
+    for index, crop in enumerate(crops):
+        row, column = divmod(index, columns)
+        grid[row * size:(row + 1) * size, column * size:(column + 1) * size] = cv2.resize(crop, (size, size))
+    plt.figure(figsize=(12, 1.3 * -(-len(crops) // columns)))
+    plt.imshow(cv2.cvtColor(grid, cv2.COLOR_BGR2RGB))
+    plt.title(title)
+    plt.axis("off")
+    plt.show()
+
+
+if nasa_runs:
+    sensitivity, yunet_only_crops = [], []
+    for threshold in (0.9, 0.7, 0.5):
+        yunet_detector = load_models(DETECTOR_PATHS["yunet"], FINAL_MODEL_PATH, detector_type="yunet",
+                                     score_threshold=threshold)[0]
+        found = matched = 0
+        for frame_bgr, _, yolo_faces in nasa_runs.values():
+            yunet_faces = detect_expressions(frame_bgr, yunet_detector, face_classifier)
+            found += len(yunet_faces)
+            pairs = match_faces(yunet_faces, yolo_faces)[0]
+            matched += len(pairs)
+            if threshold == 0.5:
+                kept = [id(face) for face, _, _ in pairs]
+                yunet_only_crops += [frame_bgr[face["box_xyxy"][1]:face["box_xyxy"][3],
+                                               face["box_xyxy"][0]:face["box_xyxy"][2]]
+                                     for face in yunet_faces if id(face) not in kept]
+        sensitivity.append({"seuil YuNet": threshold, "visages YuNet": found, "appariés à YOLO": matched,
+                            "YuNet seul": found - matched,
+                            "YOLO seul": sum(len(yolo) for _, _, yolo in nasa_runs.values()) - matched})
+    display(pd.DataFrame(sensitivity))
+    show_crops(yunet_only_crops, f"{len(yunet_only_crops)} boîtes trouvées par YuNet seul au seuil 0,5")
+
+# %% [markdown]
+# **Inspection visuelle.** Ci-dessous : tous les visages trouvés par YOLO seul
+# (seuils par défaut), puis deux photos où les détecteurs divergent le plus,
+# avec YuNet à gauche et YOLO à droite.
+
+# %%
+if yolo_only_crops:
+    show_crops(yolo_only_crops, f"{len(yolo_only_crops)} boîtes trouvées par YOLO seul (seuils par défaut)")
+    for name in nasa_bench.assign(gap=nasa_bench["YuNet seul"] + nasa_bench["YOLO seul"]).nlargest(2, "gap")["fichier"]:
+        frame_bgr, yunet_faces, yolo_faces = nasa_runs[name]
+        side_by_side = np.hstack([annotate_faces(frame_bgr, yunet_faces), annotate_faces(frame_bgr, yolo_faces)])
+        plt.figure(figsize=(16, 6))
+        plt.imshow(cv2.cvtColor(side_by_side, cv2.COLOR_BGR2RGB))
+        plt.title(f"{name} - YuNet (gauche) / YOLO11n-face (droite)")
+        plt.axis("off")
+        plt.show()
+
+# %% [markdown]
+# > *Nos observations (exécution locale du 8 octobre 2026, seuils par défaut) :*
+# > - **Comptages.** Sur les 80 photos, YuNet trouve 359 visages et YOLO11n-face
+# >   401. Les 359 visages de YuNet sont tous retrouvés par YOLO (IoU moyen de
+# >   0,912), et YOLO en ajoute 42 : 19 dans les portraits officiels, 15 dans les
+# >   photos en orbite et 8 dans les photos Artemis. YuNet ne trouve aucun visage
+# >   sur 3 photos, YOLO sur aucune.
+# > - **Inspection des 42 boîtes de YOLO seul.** 41 sont des visages réels :
+# >   visages à l'envers ou inclinés en apesanteur, profils avec lunettes de
+# >   soleil (arrivée de l'équipage Artemis II), visages derrière des lunettes et
+# >   un masque respiratoire. Une boîte, de score 0,51, montre surtout une main au
+# >   premier plan.
+# > - **Seuil de YuNet.** À 0,7, YuNet trouve 395 visages et l'écart avec YOLO
+# >   tombe à 13 visages, contre 7 pour YuNet seul. À 0,5, YuNet trouve 435 boîtes,
+# >   dont 40 que YOLO n'a pas. Sur ces 40, l'inspection montre environ
+# >   12 visages (dont un portrait dessiné au mur), environ 17 non-visages nets
+# >   (mains, écusson de mission, matériel, nuages, cheveux) et 11 zones floues ou
+# >   sombres indécidables.
+# > - **Expressions.** Sur les 359 visages appariés, le modèle final prédit la
+# >   même expression dans 336 cas, quel que soit le détecteur. Ces portraits sont
+# >   surtout souriants : happy représente 303 des 359 visages de YuNet, puis
+# >   neutral (40). Sur les visages de profil à lunettes d'Artemis II, les
+# >   prédictions changent et restent peu sûres (par exemple angry avec p = 0,34).
+# > - **Temps.** Environ 35 à 37 ms par photo en moyenne avec YuNet contre 50 à
+# >   51 ms avec YOLO selon l'exécution, classification comprise.
+#
+# > *Nos hypothèses :*
+# > - L'écart vient en grande partie du seuil strict de YuNet (0,9). À un nombre
+# >   de visages voisin, YOLO11n-face semble produire moins de fausses détections
+# >   sur cet échantillon. Sans boîtes de référence, ce n'est pas une mesure de
+# >   précision ni de rappel.
+# > - Le classifieur a appris sur des visages droits et presque frontaux
+# >   (FER2013, rotations d'au plus 18° en augmentation). Ses prédictions sur des
+# >   visages à l'envers ou de profil sont donc peu fiables. Redresser les crops
+# >   avec les points faciaux de YuNet est une piste, non testée.
+#
+# **Décision : YOLO11n-face devient le détecteur par défaut du pipeline final.**
+#
+# | Critère (80 photos NASA, seuils par défaut) | YuNet (seuil 0,9) | YOLO11n-face (seuil 0,5) |
+# |---|---:|---:|
+# | Visages trouvés | 359 | **401** |
+# | Visages vus par ce détecteur seul | 0 | **42**, dont 41 vrais visages à l'inspection |
+# | Photos sans aucun visage trouvé | 3 | **0** |
+# | Fausses détections repérées | non relevées (ses 359 boîtes sont toutes retrouvées par YOLO) | 1 (main au premier plan, score 0,51) |
+# | Même expression prédite sur les visages communs | 336 / 359 | 336 / 359 |
+# | Temps par photo (détection + classification, CPU, selon l'exécution) | **35 à 37 ms** | 50 à 51 ms |
+# | Poids du modèle | **232 Ko** | 10 Mo |
+# | Pour atteindre environ 400 visages | seuil 0,7 : 395 visages ; à 0,5, environ 17 non-visages ajoutés | réglage par défaut |
+#
+# Le pipeline doit traiter des photos réelles à plusieurs personnes, et c'est
+# là que les détecteurs diffèrent : visages tournés en apesanteur, profils, lunettes
+# de soleil, masques. YOLO11n-face trouve 42 visages de plus, dont 41 réels, répartis
+# sur 22 des 80 photos, et ne laisse aucune photo sans visage. Le surcoût est
+# d'environ 14 ms par photo, ce qui reste acceptable pour une démonstration image
+# par image. Baisser le seuil de YuNet réduit l'écart, mais au prix de fausses
+# détections visibles (mains, écusson, matériel). YuNet reste disponible avec
+# `FACE_DETECTOR = "yunet"`, par exemple pour des portraits frontaux ou si la
+# vitesse prime. Limites : sans boîtes de référence, ce choix repose sur des
+# comptages et une inspection visuelle, pas sur une précision ou un rappel mesurés ;
+# ces photos sont surtout des portraits NASA posés.
 
 # %% [markdown]
 # **Démonstration libre.** Pour la soutenance, `RUN_CUSTOM_IMAGE=True` applique le

@@ -84,3 +84,15 @@ Commande utile : scripts/colab_bundle.sh ; .venv/bin/python -m pytest -q
 Fait : approfondissement CNN  - `src/research.py` (échelle R0 à R5, recherche aléatoire, sélection sur la val_loss moyenne de 3 seeds) et `tests/test_research.py` ; 28 runs locaux (CPU, 6,6 h). Gardés : deux convolutions par bloc, 60 epochs + ReduceLROnPlateau ; rejetés : BatchNorm, Dropout à 30 epochs, poids de classes ; S4 diverge (toujours happy). Gagnant S5 : val_loss 1,0232 ± 0,0121, val_acc 0,6284 ± 0,0054 (A1 refait : 1,1319 / 0,5733). Test réévalué une seule fois, déclaré : accuracy 0,624408 (A1 : 0,575508), F1 macro 0,562. `FINAL_MODEL_ID="S5"`, phase 8 et CLI `src.detect` sur S5.
 Reste : « Exécuter tout » sur un runtime Colab neuf, slides, répétition ; optionnel YOLO visages.
 Commande utile : .venv/bin/python -m src.research --ladder --search 6 (reprend les runs existants) ; .venv/bin/python -m pytest -q
+
+Fait : phase 8, option YOLO  - YOLO11n-face (export ONNX deepghs/yolo-face, OpenCV DNN, sans nouvelle dépendance) derrière l'interface de YuNet (`YoloFaceDetector`, `_decode_yolo`) ; `load_models(detector_type=...)`, CLI `--detector-type`, flag notebook `FACE_DETECTOR`. Comparaison sur 3 photos : 3/3/3 visages pour les deux, IoU moyen 0,86 à 0,91, mêmes expressions S5, YOLO plus lent de 12 à 14 ms. 42 tests, notebook exécuté sans erreur, fichiers de test inchangés.
+Reste : « Exécuter tout » sur un runtime Colab neuf, slides, répétition.
+Commande utile : .venv/bin/python -m src.detect --detector-type yolo --download-demo
+
+Fait : banc d'essai des détecteurs  - `scripts/nasa_photos.py` sélectionne sur Wikimedia Commons 80 photos NASA en domaine public (50 portraits officiels ISS, 20 photos en orbite, 10 Artemis II), avec licence et crédit dans `docs/nasa_photos.csv`. Notebook : YuNet 359 visages, YOLO 401 (tous ceux de YuNet inclus), 41/42 visages supplémentaires de YOLO réels ; sensibilité au seuil de YuNet (0,7 : 395 ; 0,5 : 435 dont environ 17 non-visages) ; expressions identiques sur 336/359 paires ; YuNet 37 ms, YOLO 51 ms par photo.
+Reste : choisir le détecteur par défaut avec l'équipe ; « Exécuter tout » sur Colab neuf, slides, répétition.
+Commande utile : .venv/bin/python scripts/nasa_photos.py --download
+
+Fait : YOLO11n-face devient le détecteur par défaut (code, CLI, notebook) ; décision justifiée par un tableau (80 photos : 401 contre 359 visages, 41 visages supplémentaires réels, 0 photo sans visage contre 3, environ 14 ms de plus par photo, 10 Mo contre 232 Ko) dans le notebook et le README. Appel YuNet du test de sensibilité rendu explicite (`detector_type="yunet"`).
+Reste : « Exécuter tout » sur Colab neuf, slides, répétition.
+Commande utile : .venv/bin/python -m src.detect --download-demo
