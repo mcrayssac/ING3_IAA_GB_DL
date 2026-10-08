@@ -13,3 +13,10 @@ __pycache__/
 dist/
 training/archives/
 training/research/run.log
+/docs/build/
+# Sources du rapport gardées en local : seul docs/project_story.pdf est versionné.
+/docs/project_story.typ
+/docs/assets/
+/docs/extract_story_results.py
+/docs/render_story_charts.py
+/docs/export_story_diagrams.cjs

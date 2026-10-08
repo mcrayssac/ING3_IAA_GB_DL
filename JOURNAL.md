@@ -104,3 +104,7 @@ Commande utile : .venv/bin/python -m pip install -r requirements.txt (Keras 3.13
 Fait : trace pas à pas du pipeline final  - `src/detect.py` expose ses étapes sans changer les résultats (`_resize_for_detection`, `YoloFaceDetector.letterbox` et `raw`, `_yolo_candidates` ; mêmes sorties sur 13 photos avant/après). Notebook : cellule « Pipeline pas à pas » (réduction, letterbox, cartes de score 80/40/20, seuil, NMS simulée = `cv2.dnn.NMSBoxes`, boîtes, recadrages, entrées 48×48, feature maps de S5, softmax, concordance avec `detect_expressions`), réutilisée par `RUN_CUSTOM_IMAGE`. Photo ISS : 8 400 → 99 candidats → 10 visages sur 11 personnes. 42 tests, notebook exécuté sans erreur.
 Reste : « Exécuter tout » sur Colab neuf, slides, répétition.
 Commande utile : .venv/bin/python -m pytest -q
+
+Fait : rapport du projet  - PDF final `docs/project_story.pdf` (35 pages) versionné ; sources Typst, scripts de génération, `docs/assets/` et `docs/build/` ignorés par Git et gardés en local. Doublons `docs/nasa_photos 2.csv` et `scripts/nasa_photos 2.py` supprimés (identiques aux fichiers suivis).
+Reste : slides, répétition.
+Commande utile : typst compile docs/project_story.typ docs/project_story.pdf

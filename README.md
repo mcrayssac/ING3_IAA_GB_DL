@@ -105,7 +105,7 @@ API réutilisable : `load_models()` une fois, puis `detect_expressions(frame_bgr
 | 8 Multi-visages | Phase 8, pipeline final | `src/detect.py` | `data/demo/annotated/` (ignoré) | `tests/test_detection.py` |
 | 9 Vidéo | non faite (API de la phase 8 réutilisable) | - | - | - |
 
-Autres fichiers : `notebooks/projet.py` (source Jupytext du notebook unique), `scripts/colab_bundle.sh` (archives Colab), `docs/COLAB.md` (procédures et preuves des runs Colab), `SPEC.md` (décisions techniques), `TODO.md` (avancement et conformité au sujet), `JOURNAL.md` (historique). Checkpoints dans `training/checkpoints/` et archives d’artefacts dans `training/archives/`, tous deux ignorés par Git.
+Autres fichiers : `notebooks/projet.py` (source Jupytext du notebook unique), `scripts/colab_bundle.sh` (archives Colab), `docs/COLAB.md` (procédures et preuves des runs Colab), `docs/project_story.pdf` (rapport du projet, 35 pages ; ses sources Typst restent en local), `SPEC.md` (décisions techniques), `TODO.md` (avancement et conformité au sujet), `JOURNAL.md` (historique). Checkpoints dans `training/checkpoints/` et archives d’artefacts dans `training/archives/`, tous deux ignorés par Git.
 
 ## Limites
 
