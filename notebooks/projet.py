@@ -18,6 +18,7 @@
 # | Phase 5 - évaluation et erreurs | 5 | `src/evaluate.py` | - |
 # | Phase 6 - expériences E1 à E3 | 6 | `src/train.py` | `RUN_E1`, `RUN_E2`, `RUN_E3` |
 # | Phase 7 - augmentation A1 | 7 | `src/train.py` | `RUN_A1` |
+# | Approfondissement CNN | 6 | `src/research.py` | `RUN_RESEARCH` |
 # | Test officiel | 5 et 6 | `src/evaluate.py` | `RUN_TEST` |
 # | Phase 8 - pipeline final multi-visages | 8 et démonstration | `src/detect.py` | `DOWNLOAD_FACE_DEMO`, `RUN_CUSTOM_IMAGE` |
 #
@@ -219,7 +220,7 @@ def plot_history(run_id, history, best_epoch=None):
         axis.plot(epoch_numbers, history[f"val_{metric}"], label="Validation")
         if best_epoch is not None:
             axis.axvline(best_epoch, color="gray", linestyle="--", label="Meilleure val_loss")
-        axis.set(title=f"{run_id} - {title}", xlabel="Epoch", ylabel=metric, xticks=list(epoch_numbers))
+        axis.set(title=f"{run_id} - {title}", xlabel="Epoch", ylabel=metric, xticks=list(epoch_numbers)[::max(1, len(epoch_numbers) // 15)])
         axis.legend()
     plt.tight_layout()
     plt.show()
@@ -981,40 +982,204 @@ if a1_payload is not None and all((CHECKPOINT_DIR / f"{run_id}.keras").is_file()
 # > fournit une estimation indépendante.
 
 # %% [markdown]
-# ### Test officiel - évaluation unique du modèle final
+# ## Approfondissement CNN - démarche de recherche
 #
-# Le test n'est évalué qu'une fois, après comparaison avec A1 en phase 7 à partir
-# de la validation. `evaluate_test_once` refuse une seconde évaluation, car
-# `training/logs/test_evaluation.json` existe alors déjà. Les exécutions
-# suivantes relisent ce fichier et affichent la même analyse sans recalculer.
-# L'empreinte du test enregistrée garantit que les images relues sont les
-# mêmes, dans le même ordre.
+# **Constats de départ (sections précédentes).**
+# - C0 et E3 surapprennent dès l'epoch 7 : leur val_loss remonte ensuite jusqu'à
+#   1,35 environ.
+# - A1 retarde ce surapprentissage, mais s'arrête à l'epoch 29 sur 30 avec une loss
+#   train encore en baisse. Son accuracy train (0,57) reste proche de sa
+#   validation : sur des images augmentées, le réseau semble manquer de capacité ou
+#   de temps d'entraînement plutôt que mémoriser.
+# - disgust (436 images en train officiel) et fear gardent les F1 les plus bas ;
+#   sad, neutral et fear se confondent entre eux.
+#
+# **Repères publiés.** La précision humaine sur FER2013 est estimée à 65 ± 5 %
+# ([Goodfellow et al., 2013](https://arxiv.org/abs/1307.0414)). Un réseau unique
+# de type VGG, plus profond, longuement entraîné et finement réglé, atteint
+# 73,28 % sur le test ([Khaireddin et Chen, 2021](https://arxiv.org/abs/2105.03588)).
+# A1 obtient 57,55 % sur le test. Ces budgets ne sont pas comparables au nôtre,
+# mais ils indiquent des pistes : plus de profondeur, une normalisation des
+# activations et un entraînement plus long.
+#
+# **Objectifs fixés avant les runs.**
+# 1. Baisser la val_loss **moyenne sur 3 seeds** (42, 43 et 44) par rapport à A1
+#    refait en local. Chaque seed change l'initialisation, l'ordre des batches,
+#    l'augmentation et le dropout ; le split reste celui de C0 (empreinte vérifiée).
+# 2. Mesurer la variabilité entre seeds (écart-type) avant d'interpréter un écart.
+# 3. Suivre le F1 macro pour voir l'effet sur disgust et fear.
+#
+# Critère de sélection : val_loss moyenne minimale, puis val_accuracy moyenne
+# maximale. Le test n'est jamais utilisé pendant cette recherche. La largeur
+# reste à 32/64/128 filtres, car un réseau 64/128/256 coûte environ 92 s par epoch
+# sur notre CPU, contre 30 s à 32/64/128 avec deux convolutions par bloc.
+#
+# **Échelle d'améliorations.** Un changement à la fois, gardé seulement s'il
+# baisse la val_loss moyenne :
+#
+# | Id | Changement | Hypothèse |
+# |---|---|---|
+# | R0 | A1 refait en local | Référence sur le même matériel et variabilité des seeds |
+# | R1 | BatchNorm après chaque convolution | Activations normalisées, entraînement plus rapide et plus stable ([Ioffe et Szegedy, 2015](https://arxiv.org/abs/1502.03167)) |
+# | R2 | Deux convolutions par bloc | Plus de profondeur et un champ récepteur plus large à résolution égale ([Simonyan et Zisserman, 2014](https://arxiv.org/abs/1409.1556)) |
+# | R3 | Dropout 0,25 par bloc et 0,5 avant la sortie | Compenser la capacité ajoutée |
+# | R4 | 60 epochs, ReduceLROnPlateau, patience 8 | A1 a atteint le plafond de 30 epochs |
+# | R5 | Poids de classes équilibrés | Meilleur rappel de disgust et fear, peut-être au prix de la loss |
+#
+# **Recherche aléatoire.** Six réglages tirés autour du meilleur palier
+# (learning rate log-uniforme entre 2e-4 et 2e-3, batch, dropouts, taille de la
+# Dense), une seed chacun ; les deux meilleurs sont confirmés sur 3 seeds. Le
+# gagnant (seed 42) devient le candidat au modèle final, avec une réévaluation du
+# test **déclarée** dans un fichier séparé.
+#
+# **Exécution.** `python -m src.research --ladder --search 6` reprend les runs
+# déjà faits (un JSON par run et par seed dans `training/research/`). Dans le
+# notebook, `RUN_RESEARCH=False` relit ces résultats sans entraîner. Sur Colab,
+# le même code utilise le GPU s'il est disponible.
+
+# %%
+from src.research import SELECTION, run_ladder, run_search, summarize
+
+RUN_RESEARCH = False  # Plusieurs heures sur CPU : lancer plutôt la commande ci-dessus.
+RESEARCH_DIR = PROJECT_ROOT / "training/research"
+if RUN_RESEARCH:
+    research_data = (X_train, y_train, X_val, y_val)
+    run_ladder(research_data, out_dir=RESEARCH_DIR, checkpoint_dir=CHECKPOINT_DIR / "research")
+    run_search(research_data, 6, out_dir=RESEARCH_DIR, checkpoint_dir=CHECKPOINT_DIR / "research")
+
+research_summary = summarize(RESEARCH_DIR)
+if research_summary.empty:
+    print("Aucun run d'approfondissement disponible.")
+else:
+    print("Sélection :", SELECTION)
+    display(research_summary.round(4))
+    ladder_path = RESEARCH_DIR / "ladder.json"
+    if ladder_path.is_file():
+        ladder = json.loads(ladder_path.read_text(encoding="utf-8"))
+        display(pd.DataFrame(ladder["decisions"]).round(4))
+
+# %%
+DEEP_DIVE_WINNER = None
+if not research_summary.empty:
+    confirmed = research_summary[research_summary["seeds"] == 3]  # Déjà trié par le critère.
+    DEEP_DIVE_WINNER = confirmed.iloc[0]["id"]
+    print(f"Configuration retenue par le critère : {DEEP_DIVE_WINNER} ; checkpoint de la seed 42.")
+    research_records = {
+        path.stem: json.loads(path.read_text(encoding="utf-8")) for path in sorted(RESEARCH_DIR.glob("*_s*.json"))
+    }
+    for run_id in ("R0", DEEP_DIVE_WINNER):
+        for seed in (42, 43, 44):
+            record = research_records.get(f"{run_id}_s{seed}")
+            if record is not None and seed == 42:
+                plot_history(f"{run_id} seed {seed}", record["history"], record["best_epoch"])
+    f1_by_run = {
+        run_id: pd.DataFrame([research_records[f"{run_id}_s{seed}"]["val_f1"] for seed in (42, 43, 44)]).mean()
+        for run_id in ("R0", "R2", "R4", DEEP_DIVE_WINNER)
+    }
+    f1_research = pd.DataFrame(f1_by_run)
+    f1_research.loc["macro"] = f1_research.mean()
+    print("F1 de validation par classe, moyenne sur 3 seeds :")
+    print(f1_research.round(3).to_string())
+
+# %% [markdown]
+# **Résultats du 8 octobre 2026.** 28 runs (12 configurations), soit 6,6 heures sur
+# le CPU d'un Mac arm64 (TensorFlow 2.21.0, sans GPU). Le test n'a jamais été
+# utilisé.
+#
+# > *Nos observations :*
+# > - **Référence R0.** A1 refait en local obtient une val_loss de 1,1319 ± 0,0097
+# >   et une val_accuracy de 0,5733, proches d'A1 sur Colab (1,126252 et
+# >   0,577200). L'écart entre seeds est d'environ 0,01 de loss. Un gain plus
+# >   petit ne serait donc pas interprétable.
+# > - **R1, BatchNorm : rejeté.** La val_loss moyenne monte à 1,2218. Elle varie
+# >   fortement d'une epoch à l'autre (seed 42 : 1,244, 1,298, 1,313, 1,288, 1,518,
+# >   1,237), et l'arrêt anticipé intervient dès les epochs 12 à 18.
+# > - **R2, deux convolutions par bloc : gardé.** La val_loss baisse à
+# >   1,0523 ± 0,0076 (−0,080 par rapport à R0), la val_accuracy passe à 0,6095,
+# >   et le F1 de disgust monte de 0,169 à 0,306.
+# > - **R3, Dropout : rejeté.** 1,0825 ± 0,0104. Les trois seeds retiennent
+# >   l'epoch 29 sur 30 : le budget de 30 epochs arrête l'entraînement avant la
+# >   convergence.
+# > - **R4, 60 epochs et ReduceLROnPlateau : gardé.** 1,0299 ± 0,0035, avec une
+# >   val_accuracy de 0,6222 et le meilleur F1 macro (0,569). Les meilleures epochs
+# >   vont de 30 à 39, après plusieurs réductions du learning rate.
+# > - **R5, poids de classes : rejeté.** 1,1266, et le F1 macro baisse aussi
+# >   (0,537 contre 0,569 pour R4) : la pondération n'améliore pas ici les classes
+# >   rares.
+# > - **Recherche aléatoire.** S5 (learning rate 6,5e-4, batch 32, dropout
+# >   0,25 par bloc et 0,3 avant la sortie, Dense 256, 1 468 135 paramètres)
+# >   obtient la meilleure val_loss moyenne : 1,0232 ± 0,0121, avec une
+# >   val_accuracy de 0,6284 ± 0,0054. S1 suit (1,0395). S4 (learning rate 1,7e-3,
+# >   batch 32) échoue : sa val_accuracy reste à 0,251 dès la première epoch, soit
+# >   la part de happy en validation (1 082 / 4 307). Le réseau prédit donc
+# >   toujours happy.
+# > - **Gain total.** De R0 à S5, la val_accuracy moyenne gagne 5,5 points
+# >   (0,5733 → 0,6284) et la val_loss baisse de 0,109. Le F1 progresse sur toutes
+# >   les classes, par exemple disgust (0,169 → 0,271) et surprise
+# >   (0,650 → 0,717).
+#
+# > *Nos hypothèses :*
+# > - Avec BatchNorm, les statistiques des batches d'entraînement augmentés
+# >   pourraient différer de celles des images de validation non augmentées,
+# >   d'où une validation instable. Ce n'est pas vérifié (il faudrait un run
+# >   BatchNorm sans augmentation).
+# > - Le Dropout de R3 semble demander plus d'epochs : S5 combine Dropout et
+# >   budget de 60 epochs et obtient le meilleur résultat, ce qui va dans ce sens
+# >   sans le démontrer.
+# > - L'échec de S4 viendrait d'un learning rate trop élevé pour des batches de
+# >   32 images. Le réseau reste bloqué sur la classe majoritaire.
+#
+# > *Notre choix :* selon le critère fixé avant les runs, le modèle retenu est
+# > **S5** (checkpoint de la seed 42 : val_loss 1,009580, val_accuracy 0,632691).
+# > Son avance sur R4 (0,0067 de loss) est plus petite que son propre écart-type
+# > entre seeds (0,0121) : les deux configurations sont presque à égalité. R4 a un
+# > meilleur F1 macro (0,569 contre 0,562), notamment sur disgust, et compte
+# > 877 287 paramètres seulement. S5 retient encore l'epoch 58 sur 60 pour la seed
+# > 42, donc le budget reste une limite. Douze configurations ont été comparées sur
+# > la même validation, ce qui rend la meilleure val_loss un peu optimiste : la
+# > réévaluation du test, déclarée ci-dessous, donne une estimation indépendante.
+
+# %% [markdown]
+# ### Test officiel - évaluations du modèle final
+#
+# Chaque évaluation du test est unique : `evaluate_test_once` écrit un fichier
+# par modèle et refuse de le réécrire. Les exécutions suivantes relisent ces
+# fichiers et affichent la même analyse sans recalculer. L'empreinte du test
+# enregistrée garantit que les images relues sont les mêmes, dans le même ordre.
+#
+# **Deux usages du test, déclarés.**
+# 1. Le 7 octobre, A1, choisi en phase 7 : `training/logs/test_evaluation.json`.
+# 2. Le 8 octobre, S5, choisi sur la validation par l'approfondissement :
+#    `training/logs/test_evaluation_deepdive.json`.
+#
+# Le premier résultat a été vu avant l'approfondissement. Ses constats
+# (confusions sad/neutral/fear, disgust → angry) n'ont pas servi à choisir les
+# configurations, qui viennent de la validation et de la littérature. Le second
+# score reste toutefois moins strictement indépendant qu'une première évaluation.
 
 # %%
 from src.evaluate import evaluate_test_once, load_test_evaluation
 from src.train import _validation_digest
 
 
-# Activer une seule fois, après le choix du modèle final ; ensuite, remettre à False
-# et versionner training/logs/test_evaluation.json.
-RUN_TEST = False
-FINAL_MODEL_ID = "A1"  # Choisi en phase 7 par le critère fixé avant les runs.
-assert SELECTED_ID in (None, FINAL_MODEL_ID), "Le modèle final doit suivre le critère de sélection."
-test_payload = load_test_evaluation(LOG_DIR)
-if RUN_TEST and test_payload is not None:
-    print("Test officiel déjà évalué : relecture du résultat, aucune nouvelle évaluation.")
-elif RUN_TEST:
-    assert FINAL_MODEL_ID is not None, "Choisir le modèle final sur la validation avant le test."
-    test_payload = evaluate_test_once(FINAL_MODEL_ID, X_test, y_test, log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR)
+RUN_TEST = False  # Évaluations faites : A1 le 7 octobre, S5 le 8 octobre. Laisser à False.
+FINAL_MODEL_ID = "S5"  # Approfondissement CNN, critère fixé avant les runs.
+TEST_RESULTS = {"A1": "test_evaluation.json", "S5": "test_evaluation_deepdive.json"}  # Ordre chronologique.
+assert SELECTED_ID in (None, "A1") and DEEP_DIVE_WINNER in (None, FINAL_MODEL_ID)
+if RUN_TEST and load_test_evaluation(LOG_DIR, TEST_RESULTS[FINAL_MODEL_ID]) is None:
+    evaluate_test_once(FINAL_MODEL_ID, X_test, y_test, log_dir=LOG_DIR, checkpoint_dir=CHECKPOINT_DIR,
+                       result_name=TEST_RESULTS[FINAL_MODEL_ID])
 
-if test_payload is None:
-    print("Test officiel non évalué : aucune métrique de test disponible.")
-else:
-    assert test_payload["test_sha256"] == _validation_digest(X_test, y_test)
-    print(f"Test officiel ({test_payload['run_id']}) : accuracy={test_payload['accuracy']:.6f}, "
-          f"loss={test_payload['loss']:.6f}")
-    show_analysis(f"{test_payload['run_id']} test", X_test, y_test,
-                  test_payload["y_pred"], test_payload["confidence"])
+test_payloads = {}
+for run_id, result_name in TEST_RESULTS.items():
+    payload = load_test_evaluation(LOG_DIR, result_name)
+    if payload is None:
+        print(f"{run_id} : test non évalué.")
+        continue
+    assert payload["run_id"] == run_id and payload["test_sha256"] == _validation_digest(X_test, y_test)
+    test_payloads[run_id] = payload
+    print(f"Test officiel ({run_id}) : accuracy={payload['accuracy']:.6f}, loss={payload['loss']:.6f}")
+    show_analysis(f"{run_id} test", X_test, y_test, payload["y_pred"], payload["confidence"])
 
 # %% [markdown]
 # **Résultat du test officiel (évaluation unique du 7 octobre 2026).** A1 a été
@@ -1054,8 +1219,44 @@ else:
 # > *Limites :* ce score décrit un seul run (seed 42) et un seul modèle évalué sur
 # > le test. FER2013 contient des images de faible résolution, des annotations
 # > ambiguës et des biais de population. Une expression prédite n'est pas une
-# > émotion certaine. Les réglages ne doivent plus être modifiés à partir de ces
-# > résultats, sinon le test ne serait plus une évaluation indépendante.
+# > émotion certaine. Les modèles suivants ont été choisis sur la validation
+# > seulement ; la seconde évaluation du test (S5), déclarée plus haut, est
+# > analysée ci-dessous.
+
+# %% [markdown]
+# **Seconde évaluation du test, déclarée (8 octobre 2026) : S5.** Le modèle a été
+# choisi sur la validation avant cette évaluation, réalisée une seule fois dans
+# `test_evaluation_deepdive.json` (une seconde tentative a été refusée).
+#
+# > *Nos observations :*
+# > - **Score global.** S5 obtient une accuracy test de 0,624408 et une loss de
+# >   1,004681, contre 0,575508 et 1,131685 pour A1, soit +4,89 points. Son
+# >   checkpoint donnait 0,632691 et 1,009580 en validation : l'écart avec le test
+# >   reste faible (−0,83 point d'accuracy).
+# > - **Par classe.** Le F1 test progresse pour les sept expressions par rapport à
+# >   A1 : angry 0,498 → 0,545, disgust 0,252 → 0,308, fear 0,324 → 0,406,
+# >   happy 0,802 → 0,852, neutral 0,528 → 0,588, sad 0,456 → 0,487, surprise
+# >   0,694 → 0,749. Le F1 macro passe de 0,508 à 0,562.
+# > - **Confusions restantes.** sad → neutral (292 images, 23,4 % des sad),
+# >   fear → sad (213), neutral → sad (169), fear → angry (164) et sad → fear
+# >   (144). disgust reste la classe la plus difficile : 45 % de ses images sont
+# >   prédites angry.
+# > - **Erreurs confiantes.** Les huit erreurs les plus confiantes ont p ≥ 0,99.
+# >   Cinq sont des visages souriants annotés neutral, sad ou surprise et prédits
+# >   happy (images 1, 2, 3, 5, 6). Trois sont des bouches grandes ouvertes
+# >   annotées fear ou sad et prédites surprise (images 4, 7, 8). L'image 7 porte
+# >   un filigrane de banque d'images.
+#
+# > *Nos hypothèses :* le gain vient d'une capacité plus grande (deux convolutions
+# > par bloc, Dense 256) rendue utilisable par l'augmentation, le Dropout et un
+# > entraînement plus long avec réduction du learning rate. Les erreurs confiantes
+# > restantes ressemblent à celles d'A1 : ambiguïtés entre sourire et surprise,
+# > bouche ouverte entre peur et surprise, et bruit d'annotation de FER2013.
+#
+# > *Limites :* trois seeds seulement, une validation utilisée pour comparer douze
+# > configurations, et un test consulté deux fois, ce qui est déclaré ci-dessus.
+# > Le budget de 60 epochs reste atteint (epoch 58 pour la seed 42). Les réseaux
+# > publiés autour de 73 % sont plus larges et entraînés bien plus longtemps.
 
 # %% [markdown]
 # ## Phase 8 - pipeline final : détection multi-visages et expressions
@@ -1085,7 +1286,7 @@ else:
 # - Bounding box : rectangle x, y, largeur, hauteur chez YuNet ; notre API renvoie
 #   [x1, y1, x2, y2], borné à l'image originale, avec x2/y2 exclusifs pour le crop.
 # - Confidence score : score du détecteur pour retenir une proposition de visage.
-#   Il est séparé de p, la probabilité softmax A1 de l'expression sélectionnée.
+#   Il est séparé de p, la probabilité softmax du modèle final de l'expression sélectionnée.
 #   Aucun des deux scores n'est une certitude sur l'émotion ressentie.
 # - IoU : aire d'intersection de deux boîtes divisée par leur aire d'union.
 #   NMS : conserve les propositions les mieux scorées et supprime des doublons
@@ -1097,7 +1298,7 @@ else:
 #   faciaux, que nous n'utilisons pas pour réaligner les crops.
 # - Pré-entraînement : apprendre les poids sur des données antérieures.
 #   Fine-tuning : adapter ensuite ces poids à une autre tâche ou d'autres données.
-#   Ici YuNet reste figé, et A1 est uniquement rechargé, sans fine-tuning.
+#   Ici YuNet reste figé, et le modèle final est uniquement rechargé, sans fine-tuning.
 # - Précision = TP/(TP+FP), rappel = TP/(TP+FN), avec appariement des boîtes
 #   prédites aux boîtes annotées à un seuil IoU donné. AP résume la courbe
 #   précision/rappel ; mAP moyenne l'AP sur les classes (et parfois plusieurs IoU).
@@ -1106,7 +1307,7 @@ else:
 #
 # **Pipeline réel.** Image BGR uint8 → YuNet (grand côté limité à 1280) → boîtes
 # remises à l'échelle originale et bornées → crops BGR convertis en RGB →
-# predict_faces → unique preprocess_face (48×48×1, float32, /255) → batch A1 →
+# predict_faces → unique preprocess_face (48×48×1, float32, /255) → batch du modèle final →
 # résultats structurés → annotation séparée. Zéro visage renvoie une liste vide ;
 # les boîtes invalides et les crops vides sont ignorés.
 #
@@ -1186,19 +1387,20 @@ if face_demo_models is not None:
         show_face_pipeline(frame_bgr, image_name, face_output_dir / f"{image_path.stem}_annotated.png")
 
 # %% [markdown]
-# **Observations locales du 7 octobre 2026.** Pipeline réellement exécuté avec
-# OpenCV 5.0.0, TensorFlow 2.21.0 et A1.keras ; trois visages retenus sur chacune
-# des trois photos. Les boîtes inspectées entourent les visages visibles.
-# Apollo 11 : deux happy (p≈0,95/0,93), un neutral (p≈0,70).
-# Apollo 12 : trois happy (p≈0,996–0,999). Apollo 13 : trois happy
-# (p≈0,85–0,998). Scores YuNet observés : environ 0,93–0,95.
+# **Observations locales.** Pipeline exécuté avec OpenCV 5.0.0 et TensorFlow
+# 2.21.0 ; trois visages retenus sur chacune des trois photos, avec des scores
+# YuNet d'environ 0,93 à 0,95. Les boîtes inspectées entourent les visages visibles.
+# Avec S5 (modèle final, 8 octobre) : Apollo 11 donne deux happy (p≈1,00/0,94) et
+# un neutral (p≈0,83) ; Apollo 12 trois happy (p≈0,99–1,00) ; Apollo 13 trois happy
+# (p≈0,74–1,00). A1 (7 octobre) prédisait les mêmes expressions, avec par exemple
+# p≈0,70 pour le neutral d'Apollo 11.
 # Les sourires visibles rendent ces sorties plausibles, sans labels d'expression
 # de référence. Les textes sont adaptés à la résolution pour rester lisibles.
 # Ces portraits posés, essentiellement frontaux, de trois hommes adultes chacun
 # ne vérifient ni les petits visages, ni les occlusions, ni la diversité de population.
 # Aucun score de qualité du détecteur ne peut en être déduit.
 # Les crops n'ont pas l'alignement de FER2013 ; pose, lumière et changement de domaine
-# peuvent fausser A1, même quand son softmax est élevé. Pas de calibration des scores.
+# peuvent fausser le classifieur, même quand son softmax est élevé. Pas de calibration des scores.
 # Cette extension a été validée localement ; aucune relance Colab n'a été nécessaire.
 #
 # **Relais vidéo.** Charger detector, classifier = load_models() avant la boucle ;
@@ -1206,7 +1408,7 @@ if face_demo_models is not None:
 # annotate_faces(frame_bgr, results). Les dicts contiennent box_xyxy, detector_score,
 # class_id, expression, expression_probability, dans l'ordre des détections.
 # Aucun identifiant de suivi temporel : le numéro dessiné dépend de chaque frame.
-# Réutiliser ces fonctions sans recharger les modèles et sans réentraîner A1.
+# Réutiliser ces fonctions sans recharger les modèles et sans réentraîner le classifieur.
 
 # %% [markdown]
 # **Démonstration libre.** Pour la soutenance, `RUN_CUSTOM_IMAGE=True` applique le
