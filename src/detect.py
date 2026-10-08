@@ -1,4 +1,4 @@
-"""Détection YuNet et classification A1 sur des images BGR, sans entraînement."""
+"""Détection YuNet et classification par le modèle final sur des images BGR, sans entraînement."""
 
 import argparse
 import hashlib
@@ -15,7 +15,7 @@ from src.evaluate import predict_faces
 
 
 DETECTOR_PATH = Path("training/checkpoints/face_detection_yunet_2023mar.onnx")
-CLASSIFIER_PATH = Path("training/checkpoints/A1.keras")
+CLASSIFIER_PATH = Path("training/checkpoints/S5.keras")
 DETECTOR_URL = (
     "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
     "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
@@ -72,12 +72,12 @@ def load_models(
     *, score_threshold: float = SCORE_THRESHOLD, nms_threshold: float = NMS_THRESHOLD,
     top_k: int = TOP_K,
 ):
-    """Charge une fois YuNet et A1 puis vérifie le contrat du classifieur."""
+    """Charge une fois YuNet et le classifieur final puis vérifie le contrat du classifieur."""
     for path in (detector_path, classifier_path):
         if not Path(path).is_file():
             raise FileNotFoundError(
                 f"Poids absents : {path}. Télécharger YuNet avec --download-demo "
-                "et transférer A1.keras depuis les artefacts sauvegardés."
+                "et transférer le checkpoint du modèle final depuis les artefacts sauvegardés."
             )
     assert hashlib.sha256(Path(detector_path).read_bytes()).hexdigest() == DETECTOR_SHA256
     if not (0 <= score_threshold <= 1 and 0 <= nms_threshold <= 1 and top_k > 0):

@@ -25,7 +25,14 @@ Métriques des poids sauvegardés, même split et seed :
 
 Le CNN améliore nettement l’accuracy par rapport au MLP sur ce protocole. La comparaison ne mesure pas le seul effet de l’architecture : B0 utilise 5 epochs, les CNN au plus 30 avec arrêt anticipé. Une seule seed ne démontre pas une supériorité générale. A1 améliore la loss mais son F1 macro validation (0,502) reste inférieur à C0 (0,512) et E3 (0,507), notamment sur des classes difficiles.
 
-**Modèle final : A1**, epoch 24 sur 29. Test officiel déjà évalué une seule fois : accuracy **0,575508**, loss **1,131685**, F1 macro **0,508**. `training/logs/test_evaluation.json` fait foi ; conserver `FINAL_MODEL_ID="A1"` et `RUN_TEST=False`. Les historiques, configurations et l’analyse par classe sont dans le notebook et `training/logs/`.
+**Approfondissement CNN (8 octobre).** 28 runs locaux sur 3 seeds (`src/research.py`, `training/research/`) : deux convolutions par bloc, 60 epochs avec ReduceLROnPlateau, puis recherche aléatoire. BatchNorm, Dropout à 30 epochs et poids de classes n'ont pas amélioré la val_loss moyenne.
+
+| Modèle | Validation (moyenne 3 seeds) | Test officiel |
+|---|---|---|
+| A1 (phase 7) | 0,5733 (refait en local) | accuracy 0,575508, F1 macro 0,508 (7 octobre) |
+| **S5** (approfondissement) | **0,6284 ± 0,0054** | **accuracy 0,624408, F1 macro 0,562** (8 octobre, seconde évaluation déclarée) |
+
+**Modèle final : S5** (`FINAL_MODEL_ID="S5"`, checkpoint `training/checkpoints/S5.keras`, seed 42). Le test a été consulté deux fois, pour A1 puis pour S5 ; chaque évaluation est unique et conservée (`training/logs/test_evaluation.json` et `test_evaluation_deepdive.json`). Les deux choix ont été faits sur la validation. `RUN_TEST` reste à False.
 
 ## Installation et exécution
 
@@ -50,9 +57,9 @@ Les runs complets utilisent Colab GPU ; le [guide Colab](docs/COLAB.md) décrit 
 
 ## Phase 8 : pipeline final multi-visages
 
-C’est le système complet du sujet (Figure 4) et la démonstration du modèle final. **YuNet + modèle final (`FINAL_MODEL_ID`, A1)** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. YuNet détecte des visages ; un YOLO COCO fournit des boîtes de personnes et ne suffit pas. L’API OpenCV existante et les petits poids ONNX sous licence MIT évitent une dépendance supplémentaire.
+C’est le système complet du sujet (Figure 4) et la démonstration du modèle final. **YuNet + modèle final (`FINAL_MODEL_ID`, S5)** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. YuNet détecte des visages ; un YOLO COCO fournit des boîtes de personnes et ne suffit pas. L’API OpenCV existante et les petits poids ONNX sous licence MIT évitent une dépendance supplémentaire.
 
-Avec `training/checkpoints/A1.keras` déjà présent :
+Avec `training/checkpoints/S5.keras` (modèle final) déjà présent :
 
 ```bash
 python -m src.detect --download-demo
@@ -76,6 +83,7 @@ API réutilisable : `load_models()` une fois, puis `detect_expressions(frame_bgr
 | 4 Entraînement | Phase 4 | `src/train.py` (`train_cnn`, `verify_cnn_run`) | `C0_history.json` | callbacks, epochs |
 | 5 Évaluation | Phase 5, test officiel | `src/evaluate.py` | `test_evaluation.json` | évaluation, test unique |
 | 6 Expériences | Phase 6 | `src/train.py` (`PHASE6_EXPERIMENTS`) | `E1`-`E3_history.json`, `experiments.csv` | CSV, expériences |
+| 6 Approfondissement | Approfondissement CNN | `src/research.py` | `training/research/` (JSON par seed, `ladder.json`, `summary.csv`) | `tests/test_research.py` |
 | 7 Enrichissement | Phase 7 (A1) | `src/train.py` (`_augmentation`) | `A1_history.json` | augmentation |
 | 8 Multi-visages | Phase 8, pipeline final | `src/detect.py` | `data/demo/annotated/` (ignoré) | `tests/test_detection.py` |
 | 9 Vidéo | non faite (API de la phase 8 réutilisable) | - | - | - |

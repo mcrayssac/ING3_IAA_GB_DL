@@ -63,7 +63,7 @@ Une case par consigne du PDF, avec la section du notebook ou le fichier qui la c
 - [x] Au moins trois expériences, un nombre limité de paramètres changé à chaque fois : Phase 6 (E1 à E3).
 - [x] Tableau comparatif (modification, résultats validation, observations) : Phases 6 et 7.
 - [x] Choix du modèle final justifié : Phase 7 (critère fixé avant les runs).
-- [ ] Approfondissement CNN : objectifs tirés de l'analyse, échelle d'améliorations, recherche aléatoire, moyenne sur plusieurs seeds (10-08).
+- [x] Approfondissement CNN : objectifs tirés de l'analyse, échelle d'améliorations, recherche aléatoire, moyenne sur 3 seeds ; section « Approfondissement CNN ».
 
 **Partie 7 - enrichissement**
 - [x] Data augmentation (A1) : Phase 7.
@@ -124,7 +124,7 @@ Une case par consigne du PDF, avec la section du notebook ou le fichier qui la c
 - [x] Trois expériences indépendantes de C0 : E1 Dense 64 (epoch 6/11), E2 Dropout 0,3 sans augmentation (8/13), E3 learning rate 0,0005 (7/12), runs complets Colab Tesla T4 ; JSON/CSV/checkpoints et split vérifiés en local, B0/C0 préservés. Smoke 256/64/1 temporaires, 30 tests réussis et diff propre.
 - [x] `experiments.csv` complet, courbes/tableau et analyse réelle dans le notebook ; relecture locale et Colab flags False avec fit interdit, cas sans artefacts vérifié en local. Relais Maxime : E3, val_loss 1,192440 / val_acc 0,559322, checkpoint `training/checkpoints/E3.keras`, configuration `training/logs/E3_history.json` ; critère fixé avant runs : val_loss minimale, puis accuracy maximale en cas d'égalité. Reproduction et limites documentées dans README/notebook.
 - [x] Choix définitif parmi C0, E1 à E3 et A1 par le critère fixé avant les runs : **A1** (val_loss 1,126252, val_acc 0,577200), puis évaluation test unique (phase 5). `FINAL_MODEL_ID="A1"`, `RUN_TEST=False`.
-- [ ] Approfondissement CNN (resp. Maxime) : objectifs tirés de l'analyse des données et des erreurs, échelle d'améliorations justifiées (BatchNorm, blocs VGG, largeur, dropout, budget + ReduceLROnPlateau, class weights), puis recherche aléatoire ; sélection sur la val_loss moyenne de 3 seeds ; une réévaluation du test déclarée si un modèle plus solide est retenu.
+- [x] Approfondissement CNN (resp. Maxime) : 28 runs locaux (CPU, 6,6 h), échelle R0 à R5 puis recherche aléatoire, sélection sur la val_loss moyenne de 3 seeds. Gardés : deux convolutions par bloc (R2), 60 epochs + ReduceLROnPlateau (R4) ; rejetés : BatchNorm, Dropout à 30 epochs, poids de classes. Gagnant **S5** (lr 6,5e-4, batch 32, dropout 0,25/0,3, Dense 256) : val_loss 1,0232 ± 0,0121, val_acc 0,6284 ± 0,0054 (R0 = A1 local : 1,1319 / 0,5733). Test déclaré, une seule fois : accuracy 0,624408, loss 1,004681, F1 macro 0,562 (A1 : 0,575508). `FINAL_MODEL_ID="S5"`.
 
 ## Phase 7 - Enrichissement : data augmentation (2 pts avec les phases 8 et 9) - resp. : Maxime
 - [x] Data augmentation (id `A1`) : E3 + augmentation du train dans `tf.data` (flip, rotation ±18°, translation/zoom ±15 %, contraste ±20 %), poids neufs, même split et budget ; run Colab GPU vérifié en local (epoch 24/29). Par rapport à E3 : val_loss −0,066188, val_acc +1,79 point, surapprentissage retardé ; F1 macro 0,507 → 0,502 (disgust et fear en recul).

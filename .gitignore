@@ -12,3 +12,4 @@ __pycache__/
 .DS_Store
 dist/
 training/archives/
+training/research/run.log

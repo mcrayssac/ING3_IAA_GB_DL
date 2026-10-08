@@ -67,9 +67,10 @@ def predict_faces(model: tf.keras.Model, images) -> np.ndarray:
 def evaluate_test_once(
     run_id: str, X_test: np.ndarray, y_test: np.ndarray, *,
     log_dir: str | Path = LOG_DIR, checkpoint_dir: str | Path = CHECKPOINT_DIR,
+    result_name: str = TEST_RESULT_NAME,
 ) -> dict:
-    """Évalue le test officiel une seule fois ; refuse si un résultat existe déjà."""
-    result_path = Path(log_dir) / TEST_RESULT_NAME
+    """Évalue le test officiel une seule fois par fichier de résultat ; refuse s'il existe déjà."""
+    result_path = Path(log_dir) / result_name
     if result_path.exists():
         raise FileExistsError(f"Test officiel déjà évalué : {result_path}")
     checkpoint = Path(checkpoint_dir) / f"{run_id}.keras"
@@ -90,7 +91,7 @@ def evaluate_test_once(
     return payload
 
 
-def load_test_evaluation(log_dir: str | Path = LOG_DIR) -> dict | None:
+def load_test_evaluation(log_dir: str | Path = LOG_DIR, result_name: str = TEST_RESULT_NAME) -> dict | None:
     """Relit l'unique évaluation du test, ou None si elle n'a pas encore eu lieu."""
-    path = Path(log_dir) / TEST_RESULT_NAME
+    path = Path(log_dir) / result_name
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None

@@ -1,0 +1,80 @@
+{
+ "decisions": [
+  {
+   "id": "R0",
+   "label": "A1 refait en local (r\u00e9f\u00e9rence m\u00eame mat\u00e9riel)",
+   "change": {},
+   "val_loss_mean": 1.1318615674972534,
+   "adopted": true
+  },
+  {
+   "id": "R1",
+   "label": "BatchNorm apr\u00e8s chaque convolution",
+   "change": {
+    "batch_norm": true
+   },
+   "val_loss_mean": 1.2217512528101604,
+   "adopted": false
+  },
+  {
+   "id": "R2",
+   "label": "Deux convolutions par bloc (type VGG)",
+   "change": {
+    "convs_per_block": 2
+   },
+   "val_loss_mean": 1.0523220698038738,
+   "adopted": true
+  },
+  {
+   "id": "R3",
+   "label": "Dropout 0,25 apr\u00e8s chaque bloc et 0,5 avant la sortie",
+   "change": {
+    "conv_dropout": 0.25,
+    "dense_dropout": 0.5
+   },
+   "val_loss_mean": 1.0824648141860962,
+   "adopted": false
+  },
+  {
+   "id": "R4",
+   "label": "60 epochs, ReduceLROnPlateau, patience 8",
+   "change": {
+    "max_epochs": 60,
+    "patience": 8,
+    "reduce_lr": true
+   },
+   "val_loss_mean": 1.0299009482065837,
+   "adopted": true
+  },
+  {
+   "id": "R5",
+   "label": "Poids de classes \u00e9quilibr\u00e9s",
+   "change": {
+    "class_weight": true
+   },
+   "val_loss_mean": 1.1265686353047688,
+   "adopted": false
+  }
+ ],
+ "best_config": {
+  "filters": [
+   32,
+   64,
+   128
+  ],
+  "convs_per_block": 2,
+  "batch_norm": false,
+  "conv_dropout": 0.0,
+  "dense_units": 128,
+  "dense_dropout": 0.0,
+  "learning_rate": 0.0005,
+  "batch_size": 64,
+  "max_epochs": 60,
+  "patience": 8,
+  "reduce_lr": true,
+  "class_weight": false,
+  "augmentation": true
+ },
+ "best_val_loss_mean": 1.0299009482065837,
+ "selection": "val_loss moyenne sur 3 seeds (minimale), puis val_accuracy moyenne (maximale)"
+}
