@@ -74,10 +74,10 @@ Une case par consigne du PDF, avec la section du notebook ou le fichier qui la c
 **Partie 8 - plusieurs visages**
 - [x] Image → détection des visages → boîtes → extraction → CNN → expressions : Phase 8, pipeline final.
 - [x] Pour chaque visage : boîte, expression prédite et score : Phase 8.
-- [x] Détecteur entraîné sur des visages (pas un YOLO COCO), choix justifié : Phase 8 (YuNet).
+- [x] Détecteur entraîné sur des visages (pas un YOLO COCO), choix justifié : Phase 8 (YOLO11n-face par défaut, YuNet en alternative ; tableau de décision du banc d'essai).
 - [x] Même prétraitement que l'entraînement (`preprocess_face`) : Phase 8, `src/detect.py`.
 - [x] Notions : classification vs détection, bounding box, confidence score, IoU, NMS, principe de YOLO, modèle pré-entraîné, fine-tuning, precision, recall, mAP : Phase 8.
-- [ ] Optionnel : détecteur YOLO entraîné sur des visages, comparé à YuNet.
+- [x] Optionnel : détecteur YOLO entraîné sur des visages (YOLO11n-face), au choix avec YuNet (`FACE_DETECTOR`, `--detector-type`) et comparé sur les photos de démo : Phase 8.
 
 **Partie 9 - vidéo (bonus)**
 - [ ] Vidéo → images successives → détection → extraction → CNN → affichage : non faite ; l'API de la phase 8 est réutilisable image par image.
@@ -131,7 +131,7 @@ Une case par consigne du PDF, avec la section du notebook ou le fichier qui la c
 
 ## Phase 8 - Pipeline final : détection de plusieurs visages - resp. : Paul (détection), Maxime (intégration)
 - [x] Intégration au flux principal : section « Phase 8 - pipeline final » après le test officiel, classifieur suivi par `FINAL_MODEL_ID`, démonstration du modèle final et photo libre (`RUN_CUSTOM_IMAGE`).
-- [ ] Optionnel : détecteur YOLO entraîné sur des visages (ultralytics + torch, licence des poids à vérifier), comparé à YuNet sur les photos de démo.
+- [x] Optionnel : YOLO11n-face (ONNX via OpenCV DNN, sans nouvelle dépendance) au choix avec YuNet. Apollo : 3/3/3 visages pour les deux. Banc d'essai sur 80 photos NASA du domaine public (`docs/nasa_photos.csv`, `scripts/nasa_photos.py`) : YuNet 359 visages, YOLO 401 (les 359 de YuNet inclus) ; 41 des 42 visages supplémentaires de YOLO sont réels (à l'envers, de profil, masqués) ; écart surtout dû au seuil 0,9 de YuNet, mais à 0,5 YuNet ajoute environ 17 non-visages. **YOLO11n-face devient le détecteur par défaut** (`FACE_DETECTOR`, `--detector-type`, `load_models`), YuNet reste disponible ; tableau de décision dans le notebook et le README.
 - [x] Choisir et justifier le détecteur : un YOLO pré-entraîné sur COCO détecte des personnes, pas des visages ; utiliser un modèle entraîné sur des visages ou justifier une alternative.
 - [x] Pipeline : détection -> bounding boxes -> extraction -> `preprocess_face()` -> CNN -> bounding box + expression + score, sur 2-3 images à plusieurs personnes.
 - [x] Explications : classification vs détection, bounding box, confidence score, IoU, NMS, principe de YOLO, modèle pré-entraîné, fine-tuning, precision / recall / mAP.

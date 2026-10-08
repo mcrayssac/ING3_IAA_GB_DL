@@ -57,16 +57,31 @@ Les runs complets utilisent Colab GPU ; le [guide Colab](docs/COLAB.md) décrit 
 
 ## Phase 8 : pipeline final multi-visages
 
-C’est le système complet du sujet (Figure 4) et la démonstration du modèle final. **YuNet + modèle final (`FINAL_MODEL_ID`, S5)** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. YuNet détecte des visages ; un YOLO COCO fournit des boîtes de personnes et ne suffit pas. L’API OpenCV existante et les petits poids ONNX sous licence MIT évitent une dépendance supplémentaire.
+C’est le système complet du sujet (Figure 4) et la démonstration du modèle final. **YOLO11n-face + modèle final (`FINAL_MODEL_ID`, S5)** : détection → boîtes → crops → prétraitement commun → batch CNN → annotation expression et score. Un YOLO COCO fournit des boîtes de personnes et ne suffit pas ; il faut un détecteur entraîné sur des visages. Deux sont disponibles via OpenCV, sans dépendance supplémentaire : **YOLO11n-face (par défaut)** et YuNet (`--detector-type yunet` ou `FACE_DETECTOR = "yunet"`).
+
+**Pourquoi YOLO11n-face par défaut.** Banc d'essai sur 80 photos NASA du domaine public (portraits officiels ISS, photos en orbite, Artemis II), seuils par défaut, sans boîtes de référence :
+
+| Critère | YuNet (seuil 0,9) | YOLO11n-face (seuil 0,5) |
+|---|---:|---:|
+| Visages trouvés | 359 | **401** |
+| Visages vus par ce détecteur seul | 0 | **42**, dont 41 vrais visages à l’inspection |
+| Photos sans aucun visage trouvé | 3 | **0** |
+| Même expression prédite sur les visages communs | 336 / 359 | 336 / 359 |
+| Temps par photo (CPU, détection + classification) | **35 à 37 ms** | 50 à 51 ms |
+| Poids du modèle | **232 Ko** | 10 Mo |
+
+Les visages supplémentaires sont tournés en apesanteur, de profil, derrière des lunettes de soleil ou un masque : c’est le cas des photos réelles à plusieurs personnes. Baisser le seuil de YuNet réduit l’écart (395 visages à 0,7), mais à 0,5 il ajoute environ 17 non-visages (mains, écusson, matériel). YuNet reste utile pour des portraits frontaux ou si la vitesse prime. Détails, grilles d’inspection et limites : section phase 8 du notebook.
 
 Avec `training/checkpoints/S5.keras` (modèle final) déjà présent :
 
 ```bash
-python -m src.detect --download-demo
+python -m src.detect --download-demo  # YOLO11n-face (défaut), YuNet et photos de démo
 # Puis, sans téléchargement :
 python -m src.detect data/demo/apollo11.jpg data/demo/apollo12.jpg data/demo/apollo13.jpg
 # Autre photographie :
 python -m src.detect chemin/photo.jpg --output-dir data/demo/annotated
+# YuNet à la place de YOLO11n-face :
+python -m src.detect --detector-type yunet
 ```
 
 Le téléchargement récupère YuNet, sa licence et trois photos NASA hors FER2013 dans des dossiers ignorés. Les sorties PNG/JSON sont dans `data/demo/annotated/`. La section dédiée du notebook fournit aussi la démo, la provenance des images, les notions de détection et les observations. Elle peut être exécutée sans charger FER2013, après définition de `PROJECT_ROOT`. Aucun entraînement ni évaluation du test n’est nécessaire.
@@ -100,6 +115,8 @@ La démo locale a produit trois boîtes sur chacune des trois photos NASA, inspe
 
 - [FER2013 / Kaggle](https://www.kaggle.com/datasets/msambare/fer2013) et [conditions d’utilisation](https://www.kaggle.com/terms).
 - [YuNet / OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet), [poids ONNX](https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx), [licence MIT - Shiqi Yu](https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE), [API FaceDetectorYN](https://docs.opencv.org/4.13.0/df/d20/classcv_1_1FaceDetectorYN.html). Wu, Peng et Yu, *YuNet: A Tiny Millisecond-level Face Detector*, 2023.
+- **80 photos NASA** du banc d'essai des détecteurs : Wikimedia Commons, licence « Public domain », crédit NASA (JSC/KSC) pour chacune. Titre, page Commons, auteur, crédit, licence et conditions dans `docs/nasa_photos.csv` ; sélection reproductible avec `python scripts/nasa_photos.py --build`, téléchargement avec `--download`. Usage pédagogique selon les règles NASA, sans soutien implicite de la NASA.
+- YOLO11n-face : export ONNX [deepghs/yolo-face](https://huggingface.co/deepghs/yolo-face) (licence « model-distribution-disclaimer-license »), entraîné par [akanametov/yolo-face](https://github.com/akanametov/yolo-face) (GPL-3.0, dérivé d'Ultralytics).
 - [YOLO - Redmon et al.](https://arxiv.org/abs/1506.02640) et [classes COCO](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml).
 - Photos, crédit **NASA** : [Apollo 11](https://commons.wikimedia.org/wiki/File:Apollo_11_Crew.jpg), [Apollo 12](https://science.nasa.gov/resource/apollo-12-crew/), [Apollo 13](https://commons.wikimedia.org/wiki/File:Apollo_13_Prime_Crew.jpg), [règles d’utilisation NASA](https://www.nasa.gov/nasa-brand-center/images-and-media/). Domaine public aux États-Unis ; usage pédagogique sans soutien implicite de la NASA.
 

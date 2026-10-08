@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from src.data import CLASS_NAMES, K, preprocess_face
-from src.detect import annotate_faces, detect_expressions
+from src.detect import _decode_yolo, annotate_faces, detect_expressions
 from src.evaluate import predict_faces
 
 
@@ -123,3 +123,23 @@ def test_classifier_contract_rejects_invalid_output(invalid):
         model.predict = lambda *args, **kwargs: outputs[invalid]
     with pytest.raises(AssertionError):
         predict_faces(model, [np.zeros((10, 10, 3), dtype=np.uint8)])
+
+
+def test_yolo_decoding_letterbox_and_nms() -> None:
+    """La sortie YOLO devient des lignes YuNet dans l'image d'origine, après seuil et NMS."""
+    # Image 1280 x 960 réduite de moitié (640 x 480) puis centrée : 80 px de bande en haut.
+    output = np.array([[
+        [100, 102, 400, 500],  # cx
+        [180, 182, 300, 400],  # cy
+        [40, 40, 50, 20],      # w
+        [60, 60, 50, 20],      # h
+        [0.9, 0.8, 0.3, 0.7],  # score : la 2e chevauche la 1re, la 3e est sous le seuil.
+    ]], dtype=np.float32)
+
+    faces = _decode_yolo(output, scale=(0.5, 0.5), pad=(0, 80), score_threshold=0.5, nms_threshold=0.45)
+
+    assert faces.shape == (2, 15) and np.all(faces[:, 4:14] == 0)
+    np.testing.assert_allclose(faces[0, :4], [160, 140, 80, 120])
+    np.testing.assert_allclose(faces[1, :4], [980, 620, 40, 40])
+    np.testing.assert_allclose(faces[:, 14], [0.9, 0.7])
+    assert _decode_yolo(output, (0.5, 0.5), (0, 80), score_threshold=0.95).shape == (0, 15)
